@@ -16,6 +16,8 @@ export interface FileItem {
   status: FileStatus;
   message: string;
   selected: boolean;
+  /** 上次处理方式，用于再处理 */
+  lastOp?: "compress" | "resize";
 }
 
 export interface CompressResult {

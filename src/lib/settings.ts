@@ -11,6 +11,11 @@ import {
   type TextureFormat,
   type TextureMaxSize,
 } from "./glbOptions";
+import {
+  DEFAULT_IMAGE_RESIZE,
+  type ImageResizeOptions,
+  type ResizeMode,
+} from "./imageOptions";
 
 export type CompressKind = "image" | "model";
 
@@ -19,6 +24,7 @@ const KEYS = {
   quality: "ya-quality",
   theme: "ya-theme",
   glbOptions: "ya-glb-options",
+  imageResize: "ya-image-resize",
 } as const;
 
 export function loadCompressKind(): CompressKind {
@@ -38,6 +44,30 @@ export function loadQuality(): number {
 
 export function saveQuality(quality: number) {
   localStorage.setItem(KEYS.quality, String(quality));
+}
+
+export function loadImageResizeOptions(): ImageResizeOptions {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEYS.imageResize) || "{}");
+    const mode: ResizeMode =
+      raw.mode === "height" || raw.mode === "percent" || raw.mode === "width"
+        ? raw.mode
+        : DEFAULT_IMAGE_RESIZE.mode;
+    const value = Number(raw.value);
+    return {
+      mode,
+      value: Number.isFinite(value)
+        ? Math.min(16384, Math.max(1, Math.round(value)))
+        : DEFAULT_IMAGE_RESIZE.value,
+      lockAspect: raw.lockAspect !== false,
+    };
+  } catch {
+    return { ...DEFAULT_IMAGE_RESIZE };
+  }
+}
+
+export function saveImageResizeOptions(options: ImageResizeOptions) {
+  localStorage.setItem(KEYS.imageResize, JSON.stringify(options));
 }
 
 function matchesPreset(

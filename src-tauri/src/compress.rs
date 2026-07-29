@@ -4,7 +4,7 @@ use std::path::Path;
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, ImageEncoder, ImageFormat};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use webp::{AnimDecoder, AnimEncoder, AnimFrame, BitstreamFeatures, Encoder, WebPConfig};
 
 #[derive(Debug, Clone, Serialize)]
@@ -15,6 +15,17 @@ pub struct CompressOutcome {
     pub saved: bool,
     pub best_already: bool,
     pub output: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResizeSpec {
+    /// width | height | percent
+    pub mode: String,
+    /// 目标宽/高（像素）或百分比（如 50 = 50%）
+    pub value: f64,
+    /// 按宽/高时默认锁比例；百分比忽略此字段
+    pub lock_aspect: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -66,8 +77,38 @@ pub fn detect_format(path: &Path, bytes: &[u8]) -> Result<ImageFormat, CompressE
 }
 
 fn is_apng(bytes: &[u8]) -> bool {
-    // PNG 动画控制块
     bytes.windows(4).any(|w| w == b"acTL")
+}
+
+fn is_animated(format: ImageFormat, bytes: &[u8]) -> bool {
+    match format {
+        ImageFormat::Gif => gif_frame_count(bytes).map(|n| n > 1).unwrap_or(true),
+        ImageFormat::Png => is_apng(bytes),
+        ImageFormat::WebP => BitstreamFeatures::new(bytes)
+            .map(|f| f.has_animation())
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+fn gif_frame_count(bytes: &[u8]) -> Result<usize, CompressError> {
+    let mut options = gif::DecodeOptions::new();
+    options.set_color_output(gif::ColorOutput::RGBA);
+    let mut decoder = options
+        .read_info(Cursor::new(bytes))
+        .map_err(|e| CompressError::Message(e.to_string()))?;
+    let mut n = 0usize;
+    while decoder
+        .read_next_frame()
+        .map_err(|e| CompressError::Message(e.to_string()))?
+        .is_some()
+    {
+        n += 1;
+        if n > 1 {
+            break;
+        }
+    }
+    Ok(n)
 }
 
 pub fn compress_bytes(
@@ -90,16 +131,55 @@ pub fn compress_bytes(
         }
     };
 
-    let origin_size = bytes.len() as u64;
+    finish_outcome(bytes, output, false)
+}
+
+/// 改尺寸（可附带质量压缩）。动图暂不支持改尺寸。
+pub fn resize_and_compress(
+    path: &Path,
+    bytes: &[u8],
+    quality: u8,
+    spec: &ResizeSpec,
+) -> Result<CompressOutcome, CompressError> {
+    let quality = quality.clamp(10, 100);
+    let format = detect_format(path, bytes)?;
+
+    if is_animated(format, bytes) {
+        return Err(CompressError::Message(
+            "动图暂不支持改尺寸，请使用「压缩」区（不改宽高）".into(),
+        ));
+    }
+
+    let img = image::load_from_memory(bytes)?;
+    let (ow, oh) = img.dimensions();
+    let (nw, nh) = compute_target_size(ow, oh, spec)?;
+    let dims_changed = nw != ow || nh != oh;
+
+    let resized = if dims_changed {
+        img.resize_exact(nw, nh, FilterType::Lanczos3)
+    } else {
+        img
+    };
+
+    let output = encode_image(format, &resized, quality)?;
+    finish_outcome(bytes, output, dims_changed)
+}
+
+fn finish_outcome(
+    origin_bytes: &[u8],
+    output: Vec<u8>,
+    force_save: bool,
+) -> Result<CompressOutcome, CompressError> {
+    let origin_size = origin_bytes.len() as u64;
     let output_size = output.len() as u64;
 
-    if output_size == 0 || output_size >= origin_size {
+    if output_size == 0 || (!force_save && output_size >= origin_size) {
         Ok(CompressOutcome {
             origin_size,
             output_size: origin_size,
             saved: false,
             best_already: true,
-            output: bytes.to_vec(),
+            output: origin_bytes.to_vec(),
         })
     } else {
         Ok(CompressOutcome {
@@ -112,6 +192,108 @@ pub fn compress_bytes(
     }
 }
 
+fn compute_target_size(ow: u32, oh: u32, spec: &ResizeSpec) -> Result<(u32, u32), CompressError> {
+    let ow = ow.max(1) as f64;
+    let oh = oh.max(1) as f64;
+    let mode = spec.mode.to_ascii_lowercase();
+    let value = spec.value;
+
+    let (nw, nh) = match mode.as_str() {
+        "percent" => {
+            if !(1.0..=400.0).contains(&value) {
+                return Err(CompressError::Message("百分比请输入 1–400".into()));
+            }
+            let s = value / 100.0;
+            ((ow * s).round(), (oh * s).round())
+        }
+        "width" => {
+            if !(1.0..=16384.0).contains(&value) {
+                return Err(CompressError::Message("宽度请输入 1–16384".into()));
+            }
+            let nw = value.round();
+            let nh = if spec.lock_aspect {
+                (oh * nw / ow).round()
+            } else {
+                oh
+            };
+            (nw, nh)
+        }
+        "height" => {
+            if !(1.0..=16384.0).contains(&value) {
+                return Err(CompressError::Message("高度请输入 1–16384".into()));
+            }
+            let nh = value.round();
+            let nw = if spec.lock_aspect {
+                (ow * nh / oh).round()
+            } else {
+                ow
+            };
+            (nw, nh)
+        }
+        other => {
+            return Err(CompressError::Message(format!(
+                "未知改尺寸模式: {other}"
+            )));
+        }
+    };
+
+    Ok((nw.max(1.0) as u32, nh.max(1.0) as u32))
+}
+
+fn encode_image(
+    format: ImageFormat,
+    img: &DynamicImage,
+    quality: u8,
+) -> Result<Vec<u8>, CompressError> {
+    match format {
+        ImageFormat::Jpeg => {
+            let rgb = img.to_rgb8();
+            let mut out = Vec::new();
+            let mut encoder = JpegEncoder::new_with_quality(&mut out, quality);
+            encoder.encode_image(&DynamicImage::ImageRgb8(rgb))?;
+            Ok(out)
+        }
+        ImageFormat::Png => {
+            let rgba = img.to_rgba8();
+            let mut raw = Vec::new();
+            image::codecs::png::PngEncoder::new(&mut raw).write_image(
+                rgba.as_raw(),
+                rgba.width(),
+                rgba.height(),
+                image::ExtendedColorType::Rgba8,
+            )?;
+            compress_png(&raw, quality)
+        }
+        ImageFormat::WebP => {
+            let encoder = Encoder::from_image(img)
+                .map_err(|e| CompressError::Message(format!("WebP 编码失败: {e}")))?;
+            Ok(encoder.encode(quality as f32).to_vec())
+        }
+        ImageFormat::Gif => {
+            let mut rgba = img.to_rgba8().into_raw();
+            let (w, h) = img.dimensions();
+            let speed = match quality {
+                90..=100 => 1,
+                70..=89 => 3,
+                50..=69 => 6,
+                30..=49 => 10,
+                _ => 15,
+            };
+            let mut out = Vec::new();
+            {
+                let mut encoder = gif::Encoder::new(&mut out, w as u16, h as u16, &[])
+                    .map_err(|e| CompressError::Message(e.to_string()))?;
+                let frame = gif::Frame::from_rgba_speed(w as u16, h as u16, &mut rgba, speed);
+                encoder
+                    .write_frame(&frame)
+                    .map_err(|e| CompressError::Message(e.to_string()))?;
+            }
+            Ok(out)
+        }
+        _ => Err(CompressError::Message("不支持的编码格式".into())),
+    }
+}
+
 fn compress_jpeg(bytes: &[u8], quality: u8) -> Result<Vec<u8>, CompressError> {
     let img = image::load_from_memory(bytes)?.to_rgb8();
     let mut out = Vec::with_capacity(bytes.len());
@@ -121,7 +303,6 @@ fn compress_jpeg(bytes: &[u8], quality: u8) -> Result<Vec<u8>, CompressError> {
 }
 
 fn compress_png(bytes: &[u8], quality: u8) -> Result<Vec<u8>, CompressError> {
-    // APNG：仅做无损优化，避免量化把动画压成静图
     let raw = if is_apng(bytes) {
         bytes.to_vec()
     } else if quality >= 85 {
@@ -209,7 +390,6 @@ fn compress_animated_webp(bytes: &[u8], quality: u8) -> Result<Vec<u8>, Compress
         config.quality = quality as f32;
     }
 
-    // 先拷贝帧数据，再借给 encoder（AnimFrame 需要引用生命周期）
     let owned: Vec<(Vec<u8>, webp::PixelLayout, u32, u32, i32)> = (&decoded)
         .into_iter()
         .map(|frame| {
@@ -265,7 +445,6 @@ fn compress_gif(bytes: &[u8], quality: u8) -> Result<Vec<u8>, CompressError> {
         return Err(CompressError::Message("GIF 无有效帧".into()));
     }
 
-    // speed: 1 = 最慢最好，30 = 最快；质量越高 speed 越低
     let speed = match quality {
         90..=100 => 1,
         70..=89 => 3,

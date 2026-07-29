@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use compress::{
     compress_bytes, compress_texture_image, is_supported_image, is_supported_model,
+    resize_and_compress, ResizeSpec,
 };
 use serde::Serialize;
 use tauri::State;
@@ -118,6 +119,7 @@ fn compress_image_inner(
     overwritten: Arc<Mutex<HashSet<String>>>,
     path: String,
     quality: u8,
+    resize: Option<ResizeSpec>,
 ) -> Result<CompressResult, String> {
     let path_buf = PathBuf::from(&path);
     if !is_supported_image(&path_buf) {
@@ -138,7 +140,11 @@ fn compress_image_inner(
     };
     let origin_size = origin.len() as u64;
 
-    let outcome = compress_bytes(&path_buf, &origin, quality).map_err(|e| e.to_string())?;
+    let outcome = if let Some(spec) = resize.as_ref() {
+        resize_and_compress(&path_buf, &origin, quality, spec).map_err(|e| e.to_string())?
+    } else {
+        compress_bytes(&path_buf, &origin, quality).map_err(|e| e.to_string())?
+    };
 
     if outcome.best_already {
         overwritten
@@ -153,7 +159,11 @@ fn compress_image_inner(
             output_size: origin_size,
             ratio: 0.0,
             status: "best".into(),
-            message: "已是最佳效果".into(),
+            message: if resize.is_some() {
+                "尺寸未变且已是最佳".into()
+            } else {
+                "已是最佳效果".into()
+            },
         });
     }
 
@@ -166,7 +176,7 @@ fn compress_image_inner(
     let ratio = if origin_size == 0 {
         0.0
     } else {
-        ((origin_size - outcome.output_size) as f64 / origin_size as f64) * 100.0
+        ((origin_size as i64 - outcome.output_size as i64) as f64 / origin_size as f64) * 100.0
     };
 
     Ok(CompressResult {
@@ -176,7 +186,11 @@ fn compress_image_inner(
         output_size: outcome.output_size,
         ratio,
         status: "compressed".into(),
-        message: String::new(),
+        message: if resize.is_some() {
+            "已改尺寸".into()
+        } else {
+            String::new()
+        },
     })
 }
 
@@ -219,7 +233,30 @@ async fn compress_image(
     let originals = state.originals.clone();
     let overwritten = state.overwritten.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        compress_image_inner(originals, overwritten, path, quality)
+        compress_image_inner(originals, overwritten, path, quality, None)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn resize_image(
+    state: State<'_, SessionState>,
+    path: String,
+    quality: u8,
+    mode: String,
+    value: f64,
+    lock_aspect: bool,
+) -> Result<CompressResult, String> {
+    let originals = state.originals.clone();
+    let overwritten = state.overwritten.clone();
+    let spec = ResizeSpec {
+        mode,
+        value,
+        lock_aspect,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        compress_image_inner(originals, overwritten, path, quality, Some(spec))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -394,6 +431,7 @@ pub fn run() {
             collect_images,
             collect_models,
             compress_image,
+            resize_image,
             compress_texture,
             compress_texture_file,
             restore_image,
