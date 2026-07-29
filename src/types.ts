@@ -36,9 +36,9 @@ export interface PreviewResult {
 
 export function formatSize(bytes: number): string {
   if (!bytes && bytes !== 0) return "-";
-  const unit = 1024;
-  if (bytes < unit) return `${bytes} B`;
-  return `${(bytes / unit).toFixed(2)} KB`;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 export function createId(): string {

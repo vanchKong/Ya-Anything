@@ -2,7 +2,8 @@ use std::io::Cursor;
 use std::path::Path;
 
 use image::codecs::jpeg::JpegEncoder;
-use image::{DynamicImage, ImageEncoder, ImageFormat};
+use image::imageops::FilterType;
+use image::{DynamicImage, GenericImageView, ImageEncoder, ImageFormat};
 use serde::Serialize;
 use webp::{AnimDecoder, AnimEncoder, AnimFrame, BitstreamFeatures, Encoder, WebPConfig};
 
@@ -47,6 +48,13 @@ pub fn is_supported_image(path: &Path) -> bool {
                 "jpg" | "jpeg" | "png" | "gif" | "webp"
             )
         })
+        .unwrap_or(false)
+}
+
+pub fn is_supported_model(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "glb" | "gltf"))
         .unwrap_or(false)
 }
 
@@ -285,4 +293,55 @@ fn compress_gif(bytes: &[u8], quality: u8) -> Result<Vec<u8>, CompressError> {
     }
 
     Ok(out)
+}
+
+/// GLB 贴图压缩：缩放 + 转 WebP/JPG/PNG（libwebp，比浏览器 canvas 小很多）
+pub fn compress_texture_image(
+    bytes: &[u8],
+    target_format: &str,
+    quality: u8,
+    max_size: u32,
+) -> Result<(Vec<u8>, String), CompressError> {
+    let quality = quality.clamp(1, 100);
+    let mut img = image::load_from_memory(bytes)?;
+
+    if max_size > 0 {
+        let (w, h) = img.dimensions();
+        let max_dim = w.max(h);
+        if max_dim > max_size {
+            let scale = max_size as f32 / max_dim as f32;
+            let nw = ((w as f32) * scale).round().max(1.0) as u32;
+            let nh = ((h as f32) * scale).round().max(1.0) as u32;
+            img = img.resize_exact(nw, nh, FilterType::Lanczos3);
+        }
+    }
+
+    match target_format {
+        "webp" => {
+            let encoder = Encoder::from_image(&img)
+                .map_err(|e| CompressError::Message(format!("WebP 编码失败: {e}")))?;
+            Ok((encoder.encode(quality as f32).to_vec(), "image/webp".into()))
+        }
+        "jpeg" | "jpg" => {
+            let rgb = img.to_rgb8();
+            let mut out = Vec::new();
+            let mut encoder = JpegEncoder::new_with_quality(&mut out, quality);
+            encoder.encode_image(&DynamicImage::ImageRgb8(rgb))?;
+            Ok((out, "image/jpeg".into()))
+        }
+        "png" => {
+            let rgba = img.to_rgba8();
+            let mut out = Vec::new();
+            image::codecs::png::PngEncoder::new(&mut out).write_image(
+                rgba.as_raw(),
+                rgba.width(),
+                rgba.height(),
+                image::ExtendedColorType::Rgba8,
+            )?;
+            let optimized = oxipng::optimize_from_memory(&out, &oxipng::Options::from_preset(4))
+                .unwrap_or(out);
+            Ok((optimized, "image/png".into()))
+        }
+        other => Err(CompressError::Message(format!("不支持的贴图格式: {other}"))),
+    }
 }

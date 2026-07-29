@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use compress::{compress_bytes, is_supported_image};
+use compress::{
+    compress_bytes, compress_texture_image, is_supported_image, is_supported_model,
+};
 use serde::Serialize;
 use tauri::State;
 use walkdir::WalkDir;
@@ -77,9 +79,15 @@ fn mime_of(path: &str) -> &'static str {
     }
 }
 
-fn collect_from_path(root: &Path, out: &mut Vec<String>) {
+fn collect_from_path(root: &Path, out: &mut Vec<String>, model: bool) {
+    let check = if model {
+        is_supported_model as fn(&Path) -> bool
+    } else {
+        is_supported_image as fn(&Path) -> bool
+    };
+
     if root.is_file() {
-        if is_supported_image(root) {
+        if check(root) {
             out.push(root.to_string_lossy().to_string());
         }
         return;
@@ -99,7 +107,7 @@ fn collect_from_path(root: &Path, out: &mut Vec<String>) {
         if name.starts_with('.') {
             continue;
         }
-        if is_supported_image(path) {
+        if check(path) {
             out.push(path.to_string_lossy().to_string());
         }
     }
@@ -177,7 +185,22 @@ async fn collect_images(paths: Vec<String>) -> Result<CollectResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut collected = Vec::new();
         for p in paths {
-            collect_from_path(Path::new(&p), &mut collected);
+            collect_from_path(Path::new(&p), &mut collected, false);
+        }
+        collected.sort();
+        collected.dedup();
+        CollectResult { paths: collected }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn collect_models(paths: Vec<String>) -> Result<CollectResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut collected = Vec::new();
+        for p in paths {
+            collect_from_path(Path::new(&p), &mut collected, true);
         }
         collected.sort();
         collected.dedup();
@@ -278,6 +301,65 @@ async fn get_preview(
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextureCompressResult {
+    pub data_base64: String,
+    pub mime: String,
+}
+
+#[tauri::command]
+async fn compress_texture(
+    data_base64: String,
+    target_format: String,
+    quality: u8,
+    max_size: u32,
+) -> Result<TextureCompressResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = BASE64
+            .decode(data_base64.as_bytes())
+            .map_err(|e| format!("贴图解码失败: {e}"))?;
+        let (out, mime) =
+            compress_texture_image(&bytes, &target_format, quality, max_size)
+                .map_err(|e| e.to_string())?;
+        Ok(TextureCompressResult {
+            data_base64: BASE64.encode(out),
+            mime,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextureFileResult {
+    pub mime: String,
+    pub output_size: u64,
+}
+
+/// 大贴图走临时文件，避免 base64 IPC 失败导致「几乎没压贴图」
+#[tauri::command]
+async fn compress_texture_file(
+    input_path: String,
+    output_path: String,
+    target_format: String,
+    quality: u8,
+    max_size: u32,
+) -> Result<TextureFileResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = fs::read(&input_path).map_err(|e| format!("读取贴图失败: {e}"))?;
+        let (out, mime) =
+            compress_texture_image(&bytes, &target_format, quality, max_size)
+                .map_err(|e| e.to_string())?;
+        let output_size = out.len() as u64;
+        fs::write(&output_path, &out).map_err(|e| format!("写入贴图失败: {e}"))?;
+        Ok(TextureFileResult { mime, output_size })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn clear_session(state: State<'_, SessionState>, paths: Option<Vec<String>>) -> Result<(), String> {
     let mut originals = state
@@ -306,10 +388,14 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(SessionState::new())
         .invoke_handler(tauri::generate_handler![
             collect_images,
+            collect_models,
             compress_image,
+            compress_texture,
+            compress_texture_file,
             restore_image,
             get_preview,
             clear_session

@@ -31,6 +31,7 @@ gif = "0.14.2"
 color_quant = "2.0.0"
 thiserror = "2.0.19"
 base64 = "0.23.0"
+tauri-plugin-fs = "2.5.1"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

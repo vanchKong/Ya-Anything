@@ -2,11 +2,20 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import CompareModal from "./components/CompareModal.vue";
+import ModelPanel from "./components/ModelPanel.vue";
 import SplashScreen from "./components/SplashScreen.vue";
 import { useTheme, type ThemeMode } from "./composables/useTheme";
 import logo from "./assets/logo.png";
+import {
+  loadCompressKind,
+  loadQuality,
+  saveCompressKind,
+  saveQuality,
+  type CompressKind,
+} from "./lib/settings";
 import {
   createId,
   formatSize,
@@ -15,14 +24,17 @@ import {
   type PreviewResult,
 } from "./types";
 
-const QUALITY_KEY = "ya-quality";
 const CONCURRENCY = 2;
 
 const { mode: themeMode } = useTheme();
 
+const compressKind = ref<CompressKind>(loadCompressKind());
+const modelPanelRef = ref<InstanceType<typeof ModelPanel> | null>(null);
+const dragPoint = ref<{ x: number; y: number } | null>(null);
+
 const fileList = ref<FileItem[]>([]);
 const dragStatus = ref(false);
-const quality = ref(Number(localStorage.getItem(QUALITY_KEY) || 80));
+const quality = ref(loadQuality());
 const preview = ref<PreviewResult | null>(null);
 const previewName = ref("");
 const previewOpen = ref(false);
@@ -30,6 +42,7 @@ const showSplash = ref(true);
 const progressDone = ref(0);
 const progressTotal = ref(0);
 const anchorIndex = ref(0);
+const currentCompressName = ref("");
 
 let unlistenDrag: (() => void) | null = null;
 const pendingPaths: string[] = [];
@@ -45,24 +58,68 @@ const isWorking = computed(
   () => progressTotal.value > 0 && progressDone.value < progressTotal.value,
 );
 const progressText = computed(() => {
+  if (compressKind.value === "model") {
+    return modelPanelRef.value?.progressText || "";
+  }
   if (!isWorking.value) return "";
+  if (currentCompressName.value) {
+    return `压缩中 ${progressDone.value}/${progressTotal.value} · ${currentCompressName.value}`;
+  }
   return `压缩中 ${progressDone.value}/${progressTotal.value}`;
 });
 
 watch(quality, (v) => {
-  localStorage.setItem(QUALITY_KEY, String(v));
+  saveQuality(v);
+});
+
+watch(compressKind, (v) => {
+  saveCompressKind(v);
+  dragStatus.value = false;
+  dragPoint.value = null;
 });
 
 onMounted(async () => {
   const webview = getCurrentWebview();
-  unlistenDrag = await webview.onDragDropEvent((event) => {
-    if (event.payload.type === "enter" || event.payload.type === "over") {
+  const windowRef = getCurrentWindow();
+
+  /**
+   * DragDropEvent.position 为相对 webview 的物理像素。
+   * 部分环境下实际已是 CSS 像素；用「是否落在窗口宽高内」判断要不要除 scale。
+   * 不再用 cursorPosition（拖文件时易偏移，曾导致左右反了）。
+   */
+  async function toClientPoint(position: { x: number; y: number }) {
+    const scale = await windowRef.scaleFactor();
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const raw = { x: position.x, y: position.y };
+    const logical = { x: position.x / scale, y: position.y / scale };
+    const inView = (p: { x: number; y: number }) =>
+      p.x >= -8 && p.y >= -8 && p.x <= w + 8 && p.y <= h + 8;
+
+    // Retina：raw 已在 CSS 视口内 → 已是逻辑像素，不要再除
+    if (scale > 1.05 && inView(raw)) return raw;
+    if (inView(logical)) return logical;
+    if (inView(raw)) return raw;
+    return logical;
+  }
+
+  unlistenDrag = await webview.onDragDropEvent(async (event) => {
+    const payload = event.payload;
+    if (payload.type === "enter" || payload.type === "over") {
       dragStatus.value = true;
-    } else if (event.payload.type === "leave") {
+      dragPoint.value = await toClientPoint(payload.position);
+    } else if (payload.type === "leave") {
       dragStatus.value = false;
-    } else if (event.payload.type === "drop") {
+      dragPoint.value = null;
+    } else if (payload.type === "drop") {
+      const point = await toClientPoint(payload.position);
+      if (compressKind.value === "model") {
+        await modelPanelRef.value?.handleDrop(payload.paths, point);
+      } else {
+        void handlePaths(payload.paths);
+      }
       dragStatus.value = false;
-      void handlePaths(event.payload.paths);
+      dragPoint.value = null;
     }
   });
   window.addEventListener("keydown", onGlobalKeydown);
@@ -74,6 +131,7 @@ onUnmounted(() => {
 });
 
 function onGlobalKeydown(e: KeyboardEvent) {
+  if (compressKind.value === "model") return;
   const meta = e.metaKey || e.ctrlKey;
   if (meta && e.key.toLowerCase() === "a") {
     e.preventDefault();
@@ -212,6 +270,7 @@ async function compressOne(path: string) {
   if (!item) return;
   item.status = "loading";
   item.message = "";
+  currentCompressName.value = item.name;
   try {
     const result = await invoke<CompressResult>("compress_image", {
       path,
@@ -221,6 +280,10 @@ async function compressOne(path: string) {
   } catch (err) {
     item.status = "error";
     item.message = err instanceof Error ? err.message : String(err);
+  } finally {
+    if (currentCompressName.value === item.name) {
+      currentCompressName.value = "";
+    }
   }
 }
 
@@ -311,11 +374,42 @@ function onThemeChange(event: Event) {
       <img :src="logo" class="brand-logo" alt="压鸭" />
       <div class="brand-text">
         <h1>压鸭</h1>
-        <p>本地图片压缩 · 原路径替换</p>
+        <p>
+          {{
+            compressKind === "model"
+              ? "本地 GLB 压缩 · 原路径替换"
+              : "本地图片压缩 · 原路径替换"
+          }}
+        </p>
       </div>
       <span v-if="progressText" class="progress">{{ progressText }}</span>
     </header>
 
+    <div class="kind-switch">
+      <button
+        type="button"
+        :class="{ active: compressKind === 'image' }"
+        @click="compressKind = 'image'"
+      >
+        图片
+      </button>
+      <button
+        type="button"
+        :class="{ active: compressKind === 'model' }"
+        @click="compressKind = 'model'"
+      >
+        模型 GLB
+      </button>
+    </div>
+
+    <ModelPanel
+      v-if="compressKind === 'model'"
+      ref="modelPanelRef"
+      :drag-active="dragStatus"
+      :drag-point="dragPoint"
+    />
+
+    <template v-else>
     <section v-if="isEmpty" class="dropzone" :class="{ active: dragStatus }">
       <div class="formats">
         <span>JPG</span>
@@ -381,6 +475,7 @@ function onThemeChange(event: Event) {
 
       <div v-if="dragStatus" class="drag-overlay">松开以添加更多图片</div>
     </section>
+    </template>
 
     <footer class="footer">
       <span>输出：原始路径替换</span>
@@ -393,7 +488,7 @@ function onThemeChange(event: Event) {
             <option value="dark">深色</option>
           </select>
         </label>
-        <label>
+        <label v-if="compressKind === 'image'">
           质量
           <select v-model.number="quality">
             <option v-for="n in 9" :key="n" :value="n * 10">{{ n * 10 }}</option>
@@ -465,6 +560,25 @@ function onThemeChange(event: Event) {
   font-weight: 700;
   color: var(--accent);
   white-space: nowrap;
+}
+
+.kind-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+.kind-switch button {
+  background: var(--ghost-bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.kind-switch button.active {
+  color: var(--accent-text);
+  background: linear-gradient(180deg, #f2c13a, #e8a820);
+  border-color: transparent;
 }
 
 .dropzone {
