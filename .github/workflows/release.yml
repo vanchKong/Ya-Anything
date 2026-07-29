@@ -1,0 +1,91 @@
+# Release builds (macOS Intel / Apple Silicon / Windows x64)
+
+name: Release
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            name: mac-apple
+            args: --target aarch64-apple-darwin
+            rust_targets: aarch64-apple-darwin
+          - platform: macos-latest
+            name: mac-intel
+            args: --target x86_64-apple-darwin
+            rust_targets: x86_64-apple-darwin
+          - platform: windows-latest
+            name: win64
+            args: ""
+            rust_targets: ""
+
+    runs-on: ${{ matrix.platform }}
+    name: build-${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          shared-key: ${{ matrix.name }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Short SHA
+        id: meta
+        shell: bash
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and upload to GitHub Release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: build-${{ steps.meta.outputs.short_sha }}
+          releaseName: YaYa ${{ steps.meta.outputs.short_sha }}
+          releaseBody: |
+            Automated build from commit ${{ github.sha }}.
+
+            Platforms in this release (as jobs finish):
+            - macOS Apple Silicon (`aarch64-apple-darwin`)
+            - macOS Intel (`x86_64-apple-darwin`)
+            - Windows x64
+
+            Branch: `${{ github.ref_name }}`
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.args }}

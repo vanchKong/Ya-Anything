@@ -1,7 +1,78 @@
-# Tauri + Vue + TypeScript
+# YaYa (压鸭)
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Local-first desktop tool for compressing images and GLB/glTF 3D models. Files are overwritten in place with session undo support — nothing is uploaded.
 
-## Recommended IDE Setup
+[中文文档](./README-zh.md)
 
-- [VS Code](https://code.visualstudio.com/) + [Vue - Official](https://marketplace.visualstudio.com/items?itemName=Vue.volar) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## Features
+
+### Images
+- **Compress** — re-encode by quality only; **never changes width/height**
+- **Resize** — width / height (aspect locked by default) or percentage, then encode at the same quality
+- Dual drop zones for the two workflows; batch-friendly shared rules
+- JPG / PNG / GIF / WebP (animated formats: compress yes, resize no for multi-frame)
+
+### Models (GLB)
+- Presets: Extreme small / Compact / Balanced / Fast fidelity (+ Custom)
+- Mesh: Draco / Meshopt / none, cleanup (dedup, weld, prune, …)
+- Textures: format, max edge, quality, fast (canvas) vs strong (libwebp) encoder
+- Preview, side-by-side compare with linked orbit controls
+
+### App
+- Tauri 2 + Vue 3, fully offline
+- Theme: system / light / dark
+- Progress, multi-select, restore originals within the session
+
+## Requirements
+
+- [Node.js](https://nodejs.org/) LTS
+- [pnpm](https://pnpm.io/)
+- [Rust](https://www.rust-lang.org/) (stable) for Tauri builds
+
+## Develop
+
+```bash
+pnpm install
+pnpm run dev:tauri
+```
+
+Frontend only (no native shell):
+
+```bash
+pnpm run dev
+```
+
+## Build locally
+
+```bash
+pnpm run build:tauri
+```
+
+Artifacts land under `src-tauri/target/release/bundle/`.
+
+## Releases (CI)
+
+On every push to `main` / `master`, GitHub Actions builds and publishes a **prerelease** with:
+
+| Target | Runner / flags |
+|--------|----------------|
+| macOS Apple Silicon | `aarch64-apple-darwin` |
+| macOS Intel | `x86_64-apple-darwin` |
+| Windows x64 | `windows-latest` |
+
+Workflow: [`.github/workflows/release.yml`](./.github/workflows/release.yml). You can also run it manually via **Actions → Release → Run workflow**.
+
+> Grant the repo **Settings → Actions → General → Workflow permissions → Read and write permissions** so releases can be created.
+
+## Stack
+
+- UI: Vue 3, TypeScript, Vite
+- Shell: Tauri 2 (Rust)
+- Images: `image` / oxipng / libwebp / gif
+- Models: glTF-Transform, Draco, Meshopt, Three.js preview
+
+## License
+
+[Apache License 2.0](./LICENSE)  
+Copyright 2026 vanch
+
