@@ -58,7 +58,7 @@ On every push to `main` / `master`, GitHub Actions builds and publishes a **prer
 |--------|----------------|
 | macOS Apple Silicon | `aarch64-apple-darwin` |
 | macOS Intel | `x86_64-apple-darwin` |
-| Windows x64 | `windows-latest` |
+| Windows x64 | NSIS installer (`*-setup.exe`) + portable `YaYa-portable-win64.exe` |
 
 Workflow: [`.github/workflows/release.yml`](./.github/workflows/release.yml). You can also run it manually via **Actions → Release → Run workflow**.
 

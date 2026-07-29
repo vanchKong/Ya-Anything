@@ -30,7 +30,8 @@ jobs:
             rust_targets: x86_64-apple-darwin
           - platform: windows-latest
             name: win64
-            args: ""
+            # NSIS → YaYa_*_x64-setup.exe；跳过易因中文/编码翻车的 MSI
+            args: --bundles nsis
             rust_targets: ""
 
     runs-on: ${{ matrix.platform }}
@@ -83,9 +84,21 @@ jobs:
             Platforms in this release (as jobs finish):
             - macOS Apple Silicon (`aarch64-apple-darwin`)
             - macOS Intel (`x86_64-apple-darwin`)
-            - Windows x64
+            - Windows x64: NSIS installer (`*-setup.exe`) + portable `YaYa-portable-win64.exe`
 
             Branch: `${{ github.ref_name }}`
           releaseDraft: false
           prerelease: true
           args: ${{ matrix.args }}
+
+      - name: Upload portable Windows exe
+        if: matrix.name == 'win64'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp "src-tauri/target/release/yaya.exe" "YaYa-portable-win64.exe"
+          gh release upload "build-${{ steps.meta.outputs.short_sha }}" \
+            "YaYa-portable-win64.exe" \
+            --clobber \
+            --repo "${{ github.repository }}"

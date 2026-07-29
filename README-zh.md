@@ -58,7 +58,7 @@ pnpm run build:tauri
 |------|------|
 | macOS Apple Silicon | `aarch64-apple-darwin` |
 | macOS Intel | `x86_64-apple-darwin` |
-| Windows x64 | `windows-latest` |
+| Windows x64 | NSIS 安装包（`*-setup.exe`）+ 便携版 `YaYa-portable-win64.exe` |
 
 工作流文件：[`.github/workflows/release.yml`](./.github/workflows/release.yml)。也可在 **Actions → Release → Run workflow** 手动触发。
 
