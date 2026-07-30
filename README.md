@@ -2,7 +2,8 @@
 
 Local-first desktop tool for compressing images and GLB/glTF 3D models. Files are overwritten in place with session undo support — nothing is uploaded.
 
-[中文文档](./README-zh.md)
+- **Repository:** https://github.com/vanchKong/Ya-Anything
+- [中文文档](./README-zh.md)
 
 ## Features
 

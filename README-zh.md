@@ -2,7 +2,8 @@
 
 本地优先的桌面工具：压缩图片与 GLB/glTF 模型。结果写回原路径，支持会话内回退，**不会上传任何文件**。
 
-[English](./README.md)
+- **开源地址：** https://github.com/vanchKong/Ya-Anything
+- [English](./README.md)
 
 ## 功能
 

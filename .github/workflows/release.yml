@@ -7,15 +7,39 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: write
 
 jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+    steps:
+      - name: Compute release tag
+        id: meta
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          tag="build-${short_sha}"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure prerelease exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ steps.meta.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1 || \
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --title "YaYa ${{ steps.meta.outputs.short_sha }}" \
+            --notes "Automated build from commit ${{ github.sha }} on branch ${{ github.ref_name }}." \
+            --prerelease
+
   publish:
+    needs: prepare-release
     strategy:
       fail-fast: false
       matrix:
@@ -66,18 +90,13 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Short SHA
-        id: meta
-        shell: bash
-        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-
       - name: Build and upload to GitHub Release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: build-${{ steps.meta.outputs.short_sha }}
-          releaseName: YaYa ${{ steps.meta.outputs.short_sha }}
+          tagName: ${{ needs.prepare-release.outputs.tag }}
+          releaseName: YaYa ${{ needs.prepare-release.outputs.short_sha }}
           releaseBody: |
             Automated build from commit ${{ github.sha }}.
 
@@ -98,7 +117,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cp "src-tauri/target/release/yaya.exe" "YaYa-portable-win64.exe"
-          gh release upload "build-${{ steps.meta.outputs.short_sha }}" \
+          gh release upload "${{ needs.prepare-release.outputs.tag }}" \
             "YaYa-portable-win64.exe" \
             --clobber \
             --repo "${{ github.repository }}"
