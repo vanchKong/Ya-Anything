@@ -1,4 +1,5 @@
-# Release builds (macOS Intel / Apple Silicon / Windows x64)
+# 自动创建 GitHub 发行版（Releases），并上传 macOS / Windows 安装包
+# 注意：这是「发行版 Releases」，不是仅 Tags
 
 name: Release
 
@@ -11,6 +12,7 @@ permissions:
   contents: write
 
 jobs:
+  # 先创建正式发行版（会出现在仓库右侧「发行版 / 最新」）
   prepare-release:
     runs-on: ubuntu-latest
     outputs:
@@ -26,17 +28,24 @@ jobs:
           echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure prerelease exists
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release view "${{ steps.meta.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1 || \
-          gh release create "${{ steps.meta.outputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --title "YaYa ${{ steps.meta.outputs.short_sha }}" \
-            --notes "Automated build from commit ${{ github.sha }} on branch ${{ github.ref_name }}." \
-            --prerelease
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: YaYa ${{ steps.meta.outputs.short_sha }}
+          target_commitish: ${{ github.sha }}
+          # 正式发行版：会出现在仓库右侧「发行版」并带「最新」
+          # （prerelease 只会进预发布，侧边栏通常不显示为「最新」）
+          prerelease: false
+          draft: false
+          generate_release_notes: true
+          body: |
+            自动构建自提交 `${{ github.sha }}`（分支 `${{ github.ref_name }}`）。
+
+            构建完成后会附带：
+            - macOS Apple Silicon
+            - macOS Intel
+            - Windows x64（NSIS 安装包 + 便携 exe）
 
   publish:
     needs: prepare-release
@@ -54,7 +63,6 @@ jobs:
             rust_targets: x86_64-apple-darwin
           - platform: windows-latest
             name: win64
-            # NSIS → YaYa_*_x64-setup.exe；跳过易因中文/编码翻车的 MSI
             args: --bundles nsis
             rust_targets: ""
 
@@ -90,34 +98,26 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and upload to GitHub Release
+      - name: Build and upload assets to Release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ needs.prepare-release.outputs.tag }}
           releaseName: YaYa ${{ needs.prepare-release.outputs.short_sha }}
-          releaseBody: |
-            Automated build from commit ${{ github.sha }}.
-
-            Platforms in this release (as jobs finish):
-            - macOS Apple Silicon (`aarch64-apple-darwin`)
-            - macOS Intel (`x86_64-apple-darwin`)
-            - Windows x64: NSIS installer (`*-setup.exe`) + portable `YaYa-portable-win64.exe`
-
-            Branch: `${{ github.ref_name }}`
           releaseDraft: false
-          prerelease: true
+          prerelease: false
           args: ${{ matrix.args }}
 
       - name: Upload portable Windows exe
         if: matrix.name == 'win64'
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cp "src-tauri/target/release/yaya.exe" "YaYa-portable-win64.exe"
-          gh release upload "${{ needs.prepare-release.outputs.tag }}" \
-            "YaYa-portable-win64.exe" \
-            --clobber \
-            --repo "${{ github.repository }}"
+        run: cp "src-tauri/target/release/yaya.exe" "YaYa-portable-win64.exe"
+
+      - name: Attach portable Windows exe to Release
+        if: matrix.name == 'win64'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          files: YaYa-portable-win64.exe
+          fail_on_unmatched_files: true
