@@ -4,6 +4,7 @@ import ModelViewerCanvas, {
   type OrbitSyncState,
 } from "./ModelViewerCanvas.vue";
 import { formatSize } from "../types";
+import { useI18n } from "../i18n";
 
 const props = defineProps<{
   name: string;
@@ -12,7 +13,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ close: [] }>();
-const position = ref(50);
+const { t } = useI18n();
 const orbitSync = ref<OrbitSyncState | null>(null);
 
 const originSize = computed(() => props.originBytes.byteLength);
@@ -45,34 +46,31 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         <div>
           <strong>{{ name }}</strong>
           <span class="stats">
-            {{ formatSize(originSize) }} → {{ formatSize(compressedSize) }} · 剩余
-            {{ remain.toFixed(1) }}% · 节省 {{ ratio.toFixed(1) }}%
+            {{ formatSize(originSize) }} → {{ formatSize(compressedSize) }} ·
+            {{ remain.toFixed(1) }}% · {{ ratio.toFixed(1) }}%
           </span>
         </div>
-        <button type="button" class="close" @click="emit('close')">关闭</button>
+        <button type="button" class="close" @click="emit('close')">
+          {{ t("common.close") }}
+        </button>
       </header>
 
       <div class="grid">
         <ModelViewerCanvas
           :bytes="originBytes"
-          label="原模型"
+          :label="t('model.origin')"
           :orbit-sync="orbitSync"
           @orbit-change="onOrbitChange"
         />
         <ModelViewerCanvas
           :bytes="compressedBytes"
-          label="压缩后"
+          :label="t('model.compressed')"
           :orbit-sync="orbitSync"
           @orbit-change="onOrbitChange"
         />
       </div>
 
-      <div class="slider-row">
-        <span>布局</span>
-        <input v-model.number="position" type="range" min="30" max="70" />
-        <span>左右比例仅影响视觉宽度</span>
-      </div>
-      <p class="hint">两侧视角已联动 · 拖拽旋转 · 滚轮缩放 · Esc 关闭</p>
+      <p class="hint">{{ t("model.compareHint") }}</p>
     </div>
   </div>
 </template>

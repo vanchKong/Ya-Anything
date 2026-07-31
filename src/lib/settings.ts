@@ -16,6 +16,7 @@ import {
   type ImageResizeOptions,
   type ResizeMode,
 } from "./imageOptions";
+import type { LocalePreference } from "../i18n/types";
 
 export type CompressKind = "image" | "model";
 
@@ -23,6 +24,7 @@ const KEYS = {
   kind: "ya-compress-kind",
   quality: "ya-quality",
   theme: "ya-theme",
+  locale: "ya-locale",
   glbOptions: "ya-glb-options",
   imageResize: "ya-image-resize",
 } as const;
@@ -46,6 +48,30 @@ export function saveQuality(quality: number) {
   localStorage.setItem(KEYS.quality, String(quality));
 }
 
+export function loadLocalePreference(): LocalePreference {
+  const v = localStorage.getItem(KEYS.locale);
+  if (
+    v === "system" ||
+    v === "zh" ||
+    v === "en" ||
+    v === "ja" ||
+    v === "ko" ||
+    v === "ru"
+  ) {
+    return v;
+  }
+  return "system";
+}
+
+export function saveLocalePreference(pref: LocalePreference) {
+  localStorage.setItem(KEYS.locale, pref);
+}
+
+function clampInt(n: number, min: number, max: number, fallback: number) {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
 export function loadImageResizeOptions(): ImageResizeOptions {
   try {
     const raw = JSON.parse(localStorage.getItem(KEYS.imageResize) || "{}");
@@ -53,12 +79,32 @@ export function loadImageResizeOptions(): ImageResizeOptions {
       raw.mode === "height" || raw.mode === "percent" || raw.mode === "width"
         ? raw.mode
         : DEFAULT_IMAGE_RESIZE.mode;
-    const value = Number(raw.value);
+
+    // 兼容旧版单一 value 字段
+    const legacy = Number(raw.value);
+    let width = Number(raw.width);
+    let height = Number(raw.height);
+    let percent = Number(raw.percent);
+
+    if (!Number.isFinite(width) && Number.isFinite(legacy) && mode === "width") {
+      width = legacy;
+    }
+    if (!Number.isFinite(height) && Number.isFinite(legacy) && mode === "height") {
+      height = legacy;
+    }
+    if (
+      !Number.isFinite(percent) &&
+      Number.isFinite(legacy) &&
+      mode === "percent"
+    ) {
+      percent = legacy;
+    }
+
     return {
       mode,
-      value: Number.isFinite(value)
-        ? Math.min(16384, Math.max(1, Math.round(value)))
-        : DEFAULT_IMAGE_RESIZE.value,
+      width: clampInt(width, 1, 16384, DEFAULT_IMAGE_RESIZE.width),
+      height: clampInt(height, 1, 16384, DEFAULT_IMAGE_RESIZE.height),
+      percent: clampInt(percent, 1, 400, DEFAULT_IMAGE_RESIZE.percent),
       lockAspect: raw.lockAspect !== false,
     };
   } catch {

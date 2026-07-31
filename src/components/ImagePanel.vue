@@ -10,6 +10,8 @@ import {
   saveQuality,
 } from "../lib/settings";
 import type { ImageOpMode, ResizeMode } from "../lib/imageOptions";
+import { resizeValueForMode } from "../lib/imageOptions";
+import { useI18n } from "../i18n";
 import {
   createId,
   formatSize,
@@ -19,6 +21,7 @@ import {
 } from "../types";
 
 const CONCURRENCY = 2;
+const { t } = useI18n();
 
 const props = defineProps<{
   dragActive: boolean;
@@ -64,15 +67,35 @@ const isWorking = computed(
 const progressText = computed(() => {
   if (!isWorking.value) return "";
   if (currentCompressName.value) {
-    return `处理中 ${progressDone.value}/${progressTotal.value} · ${currentCompressName.value}`;
+    return t("common.processingNamed", {
+      done: progressDone.value,
+      total: progressTotal.value,
+      name: currentCompressName.value,
+    });
   }
-  return `处理中 ${progressDone.value}/${progressTotal.value}`;
+  return t("common.processing", {
+    done: progressDone.value,
+    total: progressTotal.value,
+  });
 });
 
 const resizeValueLabel = computed(() => {
-  if (resizeOpts.value.mode === "percent") return "比例 %";
-  if (resizeOpts.value.mode === "height") return "高度 px";
-  return "宽度 px";
+  if (resizeOpts.value.mode === "percent") return t("image.percentLabel");
+  if (resizeOpts.value.mode === "height") return t("image.heightPx");
+  return t("image.widthPx");
+});
+
+const activeResizeField = computed({
+  get() {
+    if (resizeOpts.value.mode === "percent") return resizeOpts.value.percent;
+    if (resizeOpts.value.mode === "height") return resizeOpts.value.height;
+    return resizeOpts.value.width;
+  },
+  set(v: number) {
+    if (resizeOpts.value.mode === "percent") resizeOpts.value.percent = v;
+    else if (resizeOpts.value.mode === "height") resizeOpts.value.height = v;
+    else resizeOpts.value.width = v;
+  },
 });
 
 watch(
@@ -296,7 +319,7 @@ async function processOne(path: string, op: ImageOpMode) {
         path,
         quality: quality.value,
         mode: resizeOpts.value.mode,
-        value: resizeOpts.value.value,
+        value: resizeValueForMode(resizeOpts.value),
         lockAspect: resizeOpts.value.lockAspect,
       });
     } else {
@@ -339,7 +362,7 @@ async function undoSelected() {
       });
       applyResult(item, result);
       item.status = "restored";
-      item.message = "已回退";
+      item.message = t("common.restored");
     } catch (err) {
       item.status = "error";
       item.message = err instanceof Error ? err.message : String(err);
@@ -379,21 +402,27 @@ async function openCompare(item: FileItem) {
 function statusText(item: FileItem): string {
   switch (item.status) {
     case "loading":
-      return item.lastOp === "resize" ? "改尺寸中…" : "压缩中…";
+      return item.lastOp === "resize"
+        ? t("image.statusResizing")
+        : t("image.statusCompressing");
     case "best":
-      return item.message || "已是最佳效果";
+      return item.message || t("common.bestAlready");
     case "compressed":
       if (item.lastOp === "resize") {
         if (item.ratio >= 0) {
-          return `改尺寸 · ↓ ${item.ratio.toFixed(1)}%`;
+          return t("image.statusResizedDown", {
+            ratio: item.ratio.toFixed(1),
+          });
         }
-        return `改尺寸 · ↑ ${Math.abs(item.ratio).toFixed(1)}%`;
+        return t("image.statusResizedUp", {
+          ratio: Math.abs(item.ratio).toFixed(1),
+        });
       }
-      return `↓ ${item.ratio.toFixed(1)}%`;
+      return t("image.statusSaved", { ratio: item.ratio.toFixed(1) });
     case "restored":
-      return "已回退";
+      return t("common.restored");
     case "error":
-      return item.message || "失败";
+      return item.message || t("common.failed");
     default:
       return "";
   }
@@ -412,8 +441,8 @@ defineExpose({
 <template>
   <div ref="panelEl" class="image-panel">
     <section class="options">
-      <label class="opt" title="压缩与改尺寸共用；压缩时不改宽高">
-        <span>质量</span>
+      <label class="opt" :title="t('image.qualityTip')">
+        <span>{{ t("image.quality") }}</span>
         <select v-model.number="quality">
           <option v-for="n in 9" :key="n" :value="n * 10">{{ n * 10 }}</option>
         </select>
@@ -421,19 +450,19 @@ defineExpose({
 
       <span class="divider" />
 
-      <label class="opt" title="按宽或按高时默认锁定比例">
-        <span>改尺寸</span>
+      <label class="opt" :title="t('image.resizeTip')">
+        <span>{{ t("image.resize") }}</span>
         <select :value="resizeOpts.mode" @change="onResizeModeChange">
-          <option value="width">按宽</option>
-          <option value="height">按高</option>
-          <option value="percent">百分比</option>
+          <option value="width">{{ t("image.byWidth") }}</option>
+          <option value="height">{{ t("image.byHeight") }}</option>
+          <option value="percent">{{ t("image.byPercent") }}</option>
         </select>
       </label>
 
       <label class="opt">
         <span>{{ resizeValueLabel }}</span>
         <input
-          v-model.number="resizeOpts.value"
+          v-model.number="activeResizeField"
           class="num"
           type="number"
           :min="1"
@@ -445,10 +474,10 @@ defineExpose({
       <label
         v-if="resizeOpts.mode !== 'percent'"
         class="opt check"
-        title="关闭后只改选定边，另一边保持原像素（会变形）"
+        :title="t('image.lockAspectTip')"
       >
         <input v-model="resizeOpts.lockAspect" type="checkbox" />
-        <span>锁比例</span>
+        <span>{{ t("image.lockAspect") }}</span>
       </label>
     </section>
 
@@ -466,12 +495,14 @@ defineExpose({
         @dragenter.prevent="onZoneDragOver('compress', $event)"
         @dragover.prevent="onZoneDragOver('compress', $event)"
       >
-        <strong>压缩</strong>
-        <p v-if="isEmpty">不改宽高 · 仅压质量</p>
+        <strong>{{ t("image.zoneCompress") }}</strong>
+        <p v-if="isEmpty">{{ t("image.zoneCompressDesc") }}</p>
         <div v-if="isEmpty" class="actions">
-          <button type="button" @click="pickFiles('compress')">选择文件</button>
+          <button type="button" @click="pickFiles('compress')">
+            {{ t("common.pickFiles") }}
+          </button>
           <button type="button" class="ghost" @click="pickFolder('compress')">
-            文件夹
+            {{ t("common.folder") }}
           </button>
         </div>
       </div>
@@ -483,12 +514,14 @@ defineExpose({
         @dragenter.prevent="onZoneDragOver('resize', $event)"
         @dragover.prevent="onZoneDragOver('resize', $event)"
       >
-        <strong>改尺寸</strong>
-        <p v-if="isEmpty">按上方规则缩放并编码</p>
+        <strong>{{ t("image.zoneResize") }}</strong>
+        <p v-if="isEmpty">{{ t("image.zoneResizeDesc") }}</p>
         <div v-if="isEmpty" class="actions">
-          <button type="button" @click="pickFiles('resize')">选择文件</button>
+          <button type="button" @click="pickFiles('resize')">
+            {{ t("common.pickFiles") }}
+          </button>
           <button type="button" class="ghost" @click="pickFolder('resize')">
-            文件夹
+            {{ t("common.folder") }}
           </button>
         </div>
       </div>
@@ -496,23 +529,39 @@ defineExpose({
 
     <section v-if="!isEmpty" class="list-wrap">
       <div class="toolbar">
-        <button type="button" :disabled="!canUndo" title="回退选中" @click="undoSelected">
-          回退
+        <button
+          type="button"
+          :disabled="!canUndo"
+          :title="t('image.undoTip')"
+          @click="undoSelected"
+        >
+          {{ t("common.undo") }}
         </button>
         <button
           type="button"
           :disabled="!canClear"
-          title="按各文件上次方式，用当前参数再处理"
+          :title="t('image.reprocessTip')"
           @click="reprocessSelected"
         >
-          再处理
+          {{ t("image.reprocess") }}
         </button>
         <span class="spacer" />
-        <button type="button" class="ghost" @click="selectAll">全选</button>
-        <button type="button" class="ghost" @click="pickFiles('compress')">添加压缩</button>
-        <button type="button" class="ghost" @click="pickFiles('resize')">添加改尺寸</button>
-        <button type="button" :disabled="!canClear" class="danger" @click="clearSelected">
-          清除
+        <button type="button" class="ghost" @click="selectAll">
+          {{ t("common.selectAll") }}
+        </button>
+        <button type="button" class="ghost" @click="pickFiles('compress')">
+          {{ t("image.addCompress") }}
+        </button>
+        <button type="button" class="ghost" @click="pickFiles('resize')">
+          {{ t("image.addResize") }}
+        </button>
+        <button
+          type="button"
+          :disabled="!canClear"
+          class="danger"
+          @click="clearSelected"
+        >
+          {{ t("common.clear") }}
         </button>
       </div>
 
@@ -540,9 +589,7 @@ defineExpose({
           <span class="meta">{{ statusText(item) }}</span>
         </li>
       </ul>
-      <p class="tip">
-        左压缩不改尺寸 · 右改尺寸可批量 · 双击对比 · 动图请用压缩区
-      </p>
+      <p class="tip">{{ t("image.tip") }}</p>
     </section>
 
     <CompareModal

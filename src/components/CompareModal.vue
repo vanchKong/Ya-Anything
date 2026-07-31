@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { PreviewResult } from "../types";
+import { useI18n } from "../i18n";
 
 const props = defineProps<{
   name: string;
@@ -8,6 +9,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ close: [] }>();
+const { t } = useI18n();
 const position = ref(50);
 const box = ref<HTMLElement | null>(null);
 const boxWidth = ref(0);
@@ -57,10 +59,12 @@ onUnmounted(() => {
     <div class="panel" role="dialog" aria-modal="true">
       <header>
         <strong>{{ name }}</strong>
-        <button type="button" class="close" @click="emit('close')">关闭</button>
+        <button type="button" class="close" @click="emit('close')">
+          {{ t("common.close") }}
+        </button>
       </header>
 
-      <p v-if="sameImage" class="note">当前已是最佳效果，前后图一致</p>
+      <p v-if="sameImage" class="note">{{ t("common.bestAlready") }}</p>
 
       <div
         ref="box"
@@ -68,19 +72,19 @@ onUnmounted(() => {
         @pointermove="onPointerMove"
         @pointerenter="onPointerMove"
       >
-        <img class="layer" :src="compressedUrl" alt="压缩后" />
+        <img class="layer" :src="compressedUrl" :alt="t('compare.after')" />
         <div class="clip" :style="{ width: `${position}%` }">
           <img
             class="layer"
             :src="originUrl"
-            alt="原图"
+            :alt="t('compare.before')"
             :style="{ width: boxWidth ? `${boxWidth}px` : '100%' }"
           />
         </div>
-        <span class="tag left">原图</span>
-        <span class="tag right">压缩后</span>
+        <span class="tag left">{{ t("compare.before") }}</span>
+        <span class="tag right">{{ t("compare.after") }}</span>
       </div>
-      <p class="hint">移动鼠标对比前后效果</p>
+      <p class="hint">{{ t("compare.hint") }}</p>
     </div>
   </div>
 </template>

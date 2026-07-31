@@ -7,12 +7,14 @@ import ImagePanel from "./components/ImagePanel.vue";
 import ModelPanel from "./components/ModelPanel.vue";
 import SplashScreen from "./components/SplashScreen.vue";
 import { useTheme, type ThemeMode } from "./composables/useTheme";
+import { useI18n, type LocalePreference } from "./i18n";
 import logo from "./assets/logo.png";
 import { loadCompressKind, saveCompressKind, type CompressKind } from "./lib/settings";
 
 const REPO_URL = "https://github.com/vanchKong/Ya-Anything";
 
 const { mode: themeMode } = useTheme();
+const { t, preference: localePref, setPreference } = useI18n();
 
 const compressKind = ref<CompressKind>(loadCompressKind());
 const modelPanelRef = ref<InstanceType<typeof ModelPanel> | null>(null);
@@ -29,6 +31,10 @@ const progressText = computed(() => {
   }
   return imagePanelRef.value?.progressText || "";
 });
+
+const tagline = computed(() =>
+  compressKind.value === "model" ? t("taglineModel") : t("taglineImage"),
+);
 
 watch(compressKind, (v) => {
   saveCompressKind(v);
@@ -88,6 +94,10 @@ function onThemeChange(event: Event) {
   themeMode.value = (event.target as HTMLSelectElement).value as ThemeMode;
 }
 
+function onLocaleChange(event: Event) {
+  setPreference((event.target as HTMLSelectElement).value as LocalePreference);
+}
+
 async function openRepo() {
   try {
     await openUrl(REPO_URL);
@@ -102,23 +112,17 @@ async function openRepo() {
     <SplashScreen v-if="showSplash" @done="showSplash = false" />
 
     <header class="brand">
-      <img :src="logo" class="brand-logo" alt="压鸭" />
+      <img :src="logo" class="brand-logo" :alt="t('brand')" />
       <div class="brand-text">
-        <h1>压鸭</h1>
-        <p>
-          {{
-            compressKind === "model"
-              ? "本地 GLB 压缩 · 原路径替换"
-              : "本地图片压缩 / 改尺寸 · 原路径替换"
-          }}
-        </p>
+        <h1>{{ t("brand") }}</h1>
+        <p>{{ tagline }}</p>
       </div>
       <span v-if="progressText" class="progress">{{ progressText }}</span>
       <button
         type="button"
         class="github-btn"
-        title="开源仓库"
-        aria-label="打开 GitHub 开源仓库"
+        :title="t('openRepo')"
+        :aria-label="t('openRepo')"
         @click="openRepo"
       >
         <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
@@ -136,14 +140,14 @@ async function openRepo() {
         :class="{ active: compressKind === 'image' }"
         @click="compressKind = 'image'"
       >
-        图片
+        {{ t("kindImage") }}
       </button>
       <button
         type="button"
         :class="{ active: compressKind === 'model' }"
         @click="compressKind = 'model'"
       >
-        模型 GLB
+        {{ t("kindModel") }}
       </button>
     </div>
 
@@ -162,14 +166,25 @@ async function openRepo() {
     />
 
     <footer class="footer">
-      <span>输出：原始路径替换</span>
+      <span>{{ t("footerOutput") }}</span>
       <div class="footer-controls">
         <label>
-          主题
+          {{ t("language") }}
+          <select :value="localePref" @change="onLocaleChange">
+            <option value="system">{{ t("langSystem") }}</option>
+            <option value="zh">{{ t("langZh") }}</option>
+            <option value="en">{{ t("langEn") }}</option>
+            <option value="ja">{{ t("langJa") }}</option>
+            <option value="ko">{{ t("langKo") }}</option>
+            <option value="ru">{{ t("langRu") }}</option>
+          </select>
+        </label>
+        <label>
+          {{ t("theme") }}
           <select :value="themeMode" @change="onThemeChange">
-            <option value="system">跟随系统</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
+            <option value="system">{{ t("themeSystem") }}</option>
+            <option value="light">{{ t("themeLight") }}</option>
+            <option value="dark">{{ t("themeDark") }}</option>
           </select>
         </label>
       </div>
@@ -296,6 +311,8 @@ async function openRepo() {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .footer label {

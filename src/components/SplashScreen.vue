@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
 import logo from "../assets/logo.png";
+import { useI18n } from "../i18n";
 
 const emit = defineEmits<{ done: [] }>();
 const phase = ref<"in" | "out">("in");
+const { t } = useI18n();
 
 let zoomTimer = 0;
 let doneTimer = 0;
@@ -26,7 +28,7 @@ onUnmounted(() => {
 <template>
   <div class="splash" :class="phase" aria-hidden="true">
     <img :src="logo" alt="" class="logo" />
-    <p class="title">压鸭</p>
+    <p class="title">{{ t("brand") }}</p>
   </div>
 </template>
 

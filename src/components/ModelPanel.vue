@@ -19,8 +19,10 @@ import {
 } from "../lib/glbOptions";
 import { loadGlbOptions, saveGlbOptions } from "../lib/settings";
 import { createId, formatSize, type FileItem } from "../types";
+import { useI18n } from "../i18n";
 
 const CONCURRENCY = 1;
+const { t } = useI18n();
 
 const props = defineProps<{
   dragActive: boolean;
@@ -134,12 +136,20 @@ const isWorking = computed(
 );
 const progressText = computed(() => {
   if (!isWorking.value) return "";
-  const base = `压缩中 ${progressDone.value}/${progressTotal.value}`;
+  const base = t("model.compressingNamed", {
+    done: progressDone.value,
+    total: progressTotal.value,
+    name: currentName.value || "",
+  }).replace(/\s·\s$/, "");
   if (currentName.value && stageHint.value) {
-    return `${base} · ${currentName.value} · ${stageHint.value}`;
+    return `${base} · ${stageHint.value}`;
   }
-  if (stageHint.value) return `${base} · ${stageHint.value}`;
-  if (currentName.value) return `${base} · ${currentName.value}`;
+  if (stageHint.value) {
+    return t("common.processing", {
+      done: progressDone.value,
+      total: progressTotal.value,
+    }) + ` · ${stageHint.value}`;
+  }
   return base;
 });
 
@@ -494,15 +504,15 @@ async function onItemActivate(item: FileItem) {
 function statusText(item: FileItem): string {
   switch (item.status) {
     case "loading":
-      return item.message || "压缩中…";
+      return item.message || t("model.statusCompressing");
     case "best":
-      return "已是最佳效果";
+      return t("common.bestAlready");
     case "compressed":
-      return `剩余 ${(100 - item.ratio).toFixed(1)}%`;
+      return t("model.statusSaved", { ratio: item.ratio.toFixed(1) });
     case "restored":
-      return "已回退";
+      return t("common.restored");
     case "error":
-      return item.message || "失败";
+      return item.message || t("common.failed");
     default:
       return "";
   }
@@ -533,28 +543,22 @@ defineExpose({
 <template>
   <div ref="panelEl" class="model-panel">
     <section class="options">
-      <label
-        class="opt"
-        title="选档位会自动填充下方全部选项；改任意项后变为自定义"
-      >
-        <span>预设</span>
+      <label class="opt" :title="t('model.presetTip')">
+        <span>{{ t("model.preset") }}</span>
         <select :value="options.preset" @change="onPresetChange">
-          <option value="max">极致小体积</option>
-          <option value="compact">轻量</option>
-          <option value="balanced">均衡</option>
-          <option value="fast">快速保真</option>
-          <option value="custom">自定义</option>
+          <option value="max">{{ t("model.presetMax") }}</option>
+          <option value="compact">{{ t("model.presetCompact") }}</option>
+          <option value="balanced">{{ t("model.presetBalanced") }}</option>
+          <option value="fast">{{ t("model.presetFast") }}</option>
+          <option value="custom">{{ t("model.presetCustom") }}</option>
         </select>
         <i class="tip-dot">?</i>
       </label>
 
-      <label
-        class="opt"
-        title="无=不压网格；Draco 兼容广但可能较慢；Meshopt 接近 gltfpack"
-      >
-        <span>网格压缩</span>
+      <label class="opt" :title="t('model.meshCompressTip')">
+        <span>{{ t("model.meshCompress") }}</span>
         <select :value="options.meshCompress" @change="onMeshCompressChange">
-          <option value="none">无</option>
+          <option value="none">{{ t("model.meshNone") }}</option>
           <option value="draco">Draco</option>
           <option value="meshopt">Meshopt</option>
         </select>
@@ -564,99 +568,87 @@ defineExpose({
       <label
         v-if="options.meshCompress === 'draco'"
         class="opt"
-        title="0 最慢通常最小，10 最快文件更大"
+        :title="t('model.dracoSpeedTip')"
       >
-        <span>Draco速度</span>
+        <span>{{ t("model.dracoSpeed") }}</span>
         <select :value="options.dracoSpeed" @change="onDracoSpeedChange">
-          <option :value="0">0 极慢</option>
-          <option :value="3">3 慢</option>
-          <option :value="5">5 中</option>
-          <option :value="8">8 快</option>
-          <option :value="10">10 最快</option>
+          <option :value="0">0</option>
+          <option :value="3">3</option>
+          <option :value="5">5</option>
+          <option :value="8">8</option>
+          <option :value="10">10</option>
         </select>
       </label>
 
       <label
         v-if="options.meshCompress === 'draco'"
         class="opt"
-        title="量化位数：低=更小更糊，高=更大更保真"
+        :title="t('model.dracoPrecisionTip')"
       >
-        <span>Draco精度</span>
+        <span>{{ t("model.dracoPrecision") }}</span>
         <select
           :value="options.dracoPrecision"
           @change="onDracoPrecisionChange"
         >
-          <option value="low">低（更小）</option>
-          <option value="medium">中</option>
-          <option value="high">高（更保真）</option>
+          <option value="low">{{ t("model.precisionLow") }}</option>
+          <option value="medium">{{ t("model.precisionMedium") }}</option>
+          <option value="high">{{ t("model.precisionHigh") }}</option>
         </select>
       </label>
 
       <label v-if="options.meshCompress === 'meshopt'" class="opt">
-        <span>Meshopt</span>
+        <span>{{ t("model.meshoptLevel") }}</span>
         <select :value="options.meshoptLevel" @change="onMeshoptLevelChange">
-          <option value="medium">medium</option>
-          <option value="high">high</option>
+          <option value="medium">{{ t("model.levelMedium") }}</option>
+          <option value="high">{{ t("model.levelHigh") }}</option>
         </select>
       </label>
 
       <label
         v-if="options.meshCompress === 'none' || options.meshCompress === 'meshopt'"
         class="opt"
-        title="降低顶点精度。选 Draco 时由「Draco精度」控制，此项不参与"
+        :title="t('model.quantizeTip')"
       >
         <input v-model="options.quantize" type="checkbox" />
-        <span>顶点量化</span>
+        <span>{{ t("model.quantize") }}</span>
         <i class="tip-dot">?</i>
       </label>
 
-      <label
-        class="opt"
-        title="去重 accessor/纹理，几乎无损"
-      >
+      <label class="opt" :title="t('model.dedupTip')">
         <input v-model="options.dedup" type="checkbox" />
-        <span>去重</span>
+        <span>{{ t("model.dedup") }}</span>
       </label>
 
-      <label
-        class="opt"
-        title="焊接重合顶点。大模型可能非常慢；要快请关掉"
-      >
+      <label class="opt" :title="t('model.weldTip')">
         <input v-model="options.weld" type="checkbox" />
-        <span>焊接顶点</span>
+        <span>{{ t("model.weld") }}</span>
         <i class="tip-dot">?</i>
       </label>
 
-      <label class="opt" title="动画关键帧重采样">
+      <label class="opt" :title="t('model.resampleTip')">
         <input v-model="options.resample" type="checkbox" />
-        <span>动画重采样</span>
+        <span>{{ t("model.resample") }}</span>
       </label>
 
-      <label
-        class="opt"
-        title="移除未使用资源。若压缩后丢节点/材质请关闭"
-      >
+      <label class="opt" :title="t('model.pruneTip')">
         <input v-model="options.prune" type="checkbox" />
-        <span>清除冗余</span>
+        <span>{{ t("model.prune") }}</span>
         <i class="tip-dot">?</i>
       </label>
 
-      <label class="opt" title="合并兼容网格，减少 draw call">
+      <label class="opt" :title="t('model.joinMeshesTip')">
         <input v-model="options.joinMeshes" type="checkbox" />
-        <span>合并网格</span>
+        <span>{{ t("model.joinMeshes") }}</span>
       </label>
 
-      <label
-        class="opt"
-        title="有损减面，体积可再降；动画/角色请谨慎"
-      >
+      <label class="opt" :title="t('model.simplifyTip')">
         <input v-model="options.simplify" type="checkbox" />
-        <span>网格简化</span>
+        <span>{{ t("model.simplify") }}</span>
         <i class="tip-dot">?</i>
       </label>
 
       <label v-if="options.simplify" class="opt">
-        <span>简化率</span>
+        <span>{{ t("model.simplifyRatio") }}</span>
         <select v-model.number="options.simplifyRatio">
           <option :value="0.75">75%</option>
           <option :value="0.5">50%</option>
@@ -665,13 +657,10 @@ defineExpose({
         </select>
       </label>
 
-      <label
-        class="opt"
-        title="贴图边长上限。不缩放=保持原分辨率（体积关键杠杆）"
-      >
-        <span>贴图边长</span>
+      <label class="opt" :title="t('model.textureMaxSizeTip')">
+        <span>{{ t("model.textureMaxSize") }}</span>
         <select :value="options.textureMaxSize" @change="onMaxSizeChange">
-          <option :value="0">不缩放</option>
+          <option :value="0">{{ t("model.noScale") }}</option>
           <option :value="2048">2048</option>
           <option :value="1024">1024</option>
           <option :value="512">512</option>
@@ -679,13 +668,10 @@ defineExpose({
         <i class="tip-dot">?</i>
       </label>
 
-      <label
-        class="opt"
-        title="⚠️ 体积与耗时的最大头。只要不是「保持」，就会转码贴图。初版体感请选「快速」编码器"
-      >
-        <span>贴图格式</span>
+      <label class="opt" :title="t('model.textureFormatTip')">
+        <span>{{ t("model.textureFormat") }}</span>
         <select :value="options.textureFormat" @change="onTextureChange">
-          <option value="keep">保持</option>
+          <option value="keep">{{ t("model.formatKeep") }}</option>
           <option value="webp">WebP</option>
           <option value="jpeg">JPG</option>
           <option value="png">PNG</option>
@@ -696,15 +682,15 @@ defineExpose({
       <label
         v-if="options.textureFormat !== 'keep' || options.textureMaxSize > 0"
         class="opt"
-        title="快速=浏览器编码（接近初版：快、约十数MB）；强力=Rust libwebp（慢、可压到数MB）"
+        :title="t('model.textureEncoderTip')"
       >
-        <span>贴图编码</span>
+        <span>{{ t("model.textureEncoder") }}</span>
         <select
           :value="options.textureEncoder"
           @change="onTextureEncoderChange"
         >
-          <option value="canvas">快速</option>
-          <option value="rust">强力</option>
+          <option value="canvas">{{ t("model.encoderFast") }}</option>
+          <option value="rust">{{ t("model.encoderStrong") }}</option>
         </select>
         <i class="tip-dot">?</i>
       </label>
@@ -712,9 +698,9 @@ defineExpose({
       <label
         v-if="options.textureFormat === 'jpeg' || options.textureFormat === 'webp'"
         class="opt"
-        title="仅 WebP/JPG 有损质量，越低越小越糊"
+        :title="t('model.textureQualityTip')"
       >
-        <span>贴图质量</span>
+        <span>{{ t("model.textureQuality") }}</span>
         <select v-model.number="options.textureQuality">
           <option :value="40">40</option>
           <option :value="50">50</option>
@@ -729,7 +715,6 @@ defineExpose({
       <span v-if="progressText" class="progress">{{ progressText }}</span>
     </section>
 
-    <!-- 投放区始终挂载：空态大卡片 / 列表态拖入时显示迷你条 -->
     <section
       ref="dualDropEl"
       v-show="isEmpty || dragActive"
@@ -744,15 +729,15 @@ defineExpose({
         @dragenter.prevent="onZoneDragOver('preview', $event)"
         @dragover.prevent="onZoneDragOver('preview', $event)"
       >
-        <strong>预览</strong>
-        <p v-if="isEmpty">拖入查看模型（含动画）</p>
+        <strong>{{ t("model.zonePreview") }}</strong>
+        <p v-if="isEmpty">{{ t("model.zonePreviewDesc") }}</p>
         <button
           v-if="isEmpty"
           type="button"
           class="ghost"
           @click="pickFiles('preview')"
         >
-          选择文件
+          {{ t("common.pickFiles") }}
         </button>
       </div>
       <div
@@ -763,30 +748,49 @@ defineExpose({
         @dragenter.prevent="onZoneDragOver('compress', $event)"
         @dragover.prevent="onZoneDragOver('compress', $event)"
       >
-        <strong>压缩</strong>
-        <p v-if="isEmpty">拖入压缩并覆盖原文件</p>
+        <strong>{{ t("model.zoneCompress") }}</strong>
+        <p v-if="isEmpty">{{ t("model.zoneCompressDesc") }}</p>
         <button v-if="isEmpty" type="button" @click="pickFiles('compress')">
-          选择文件
+          {{ t("common.pickFiles") }}
         </button>
       </div>
     </section>
 
     <section v-if="!isEmpty" class="list-wrap">
       <div class="toolbar">
-        <button type="button" :disabled="!canUndo" title="回退选中到原文件" @click="undoSelected">
-          回退
+        <button
+          type="button"
+          :disabled="!canUndo"
+          :title="t('model.undoTip')"
+          @click="undoSelected"
+        >
+          {{ t("common.undo") }}
         </button>
-        <button type="button" :disabled="!canCompare" title="原模型 / 压缩后比对" @click="openCompare()">
-          比对
+        <button
+          type="button"
+          :disabled="!canCompare"
+          :title="t('model.compareTip')"
+          @click="openCompare()"
+        >
+          {{ t("model.compare") }}
         </button>
         <button type="button" :disabled="!canClear" @click="recompressSelected">
-          再压缩
+          {{ t("model.recompress") }}
         </button>
         <span class="spacer" />
-        <button type="button" class="ghost" @click="selectAll">全选</button>
-        <button type="button" class="ghost" @click="pickFiles('compress')">添加</button>
-        <button type="button" :disabled="!canClear" class="danger" @click="clearSelected">
-          清除
+        <button type="button" class="ghost" @click="selectAll">
+          {{ t("common.selectAll") }}
+        </button>
+        <button type="button" class="ghost" @click="pickFiles('compress')">
+          {{ t("model.add") }}
+        </button>
+        <button
+          type="button"
+          :disabled="!canClear"
+          class="danger"
+          @click="clearSelected"
+        >
+          {{ t("common.clear") }}
         </button>
       </div>
 
@@ -814,9 +818,7 @@ defineExpose({
           <span class="meta">{{ statusText(item) }}</span>
         </li>
       </ul>
-      <p class="tip">
-        双击比对或预览 · 预设会填充全部选项，改任意项即变自定义 · 回退仅本会话有效
-      </p>
+      <p class="tip">{{ t("model.tip") }}</p>
     </section>
 
     <ModelPreview

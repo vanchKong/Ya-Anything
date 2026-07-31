@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted } from "vue";
 import ModelViewerCanvas from "./ModelViewerCanvas.vue";
 import { formatSize } from "../types";
+import { useI18n } from "../i18n";
 
 const props = defineProps<{
   name: string;
@@ -9,6 +10,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ close: [] }>();
+const { t } = useI18n();
 
 function onKey(e: KeyboardEvent) {
   if (e.key === "Escape") emit("close");
@@ -26,10 +28,12 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
           <strong>{{ name }}</strong>
           <span class="size">{{ formatSize(bytes.byteLength) }}</span>
         </div>
-        <button type="button" class="close" @click="emit('close')">关闭</button>
+        <button type="button" class="close" @click="emit('close')">
+          {{ t("common.close") }}
+        </button>
       </header>
       <ModelViewerCanvas :bytes="bytes" />
-      <p class="hint">拖拽旋转 · 滚轮缩放 · 自动播放动画</p>
+      <p class="hint">{{ t("model.previewHint") }}</p>
     </div>
   </div>
 </template>
