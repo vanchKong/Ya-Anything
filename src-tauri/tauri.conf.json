@@ -35,8 +35,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {
-      "infoplist/**/*": "./"
+    "macOS": {
+      "files": {
+        "Resources/en.lproj/InfoPlist.strings": "infoplist/en.lproj/InfoPlist.strings",
+        "Resources/zh-Hans.lproj/InfoPlist.strings": "infoplist/zh-Hans.lproj/InfoPlist.strings",
+        "Resources/zh-Hant.lproj/InfoPlist.strings": "infoplist/zh-Hant.lproj/InfoPlist.strings"
+      }
     },
     "windows": {
       "wix": {
