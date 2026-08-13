@@ -145,6 +145,16 @@ export function loadGlbOptions(): GlbCompressOptions {
     return optionsFromPreset(raw.dracoPreset);
   }
 
+  // 命名预设以代码为准，避免旧 localStorage（如 textureFormat: webp）盖掉预设更新
+  if (
+    raw.preset === "max" ||
+    raw.preset === "compact" ||
+    raw.preset === "balanced" ||
+    raw.preset === "fast"
+  ) {
+    return optionsFromPreset(raw.preset);
+  }
+
   const formats = ["keep", "png", "jpeg", "webp"] as const;
   const textureFormat = formats.includes(raw.textureFormat as TextureFormat)
     ? (raw.textureFormat as TextureFormat)
@@ -186,18 +196,9 @@ export function loadGlbOptions(): GlbCompressOptions {
       ? raw.meshoptLevel
       : DEFAULT_GLB_OPTIONS.meshoptLevel;
 
-  let preset: CompressPresetId =
-    raw.preset === "max" ||
-    raw.preset === "compact" ||
-    raw.preset === "balanced" ||
-    raw.preset === "fast" ||
-    raw.preset === "custom"
-      ? raw.preset
-      : "custom";
-
   const merged: GlbCompressOptions = {
     ...DEFAULT_GLB_OPTIONS,
-    preset,
+    preset: "custom",
     meshCompress,
     dracoSpeed,
     dracoPrecision,
@@ -235,8 +236,12 @@ export function loadGlbOptions(): GlbCompressOptions {
         : DEFAULT_GLB_OPTIONS.textureEncoder,
   };
 
-  if (merged.preset !== "custom" && !matchesPreset(merged, merged.preset)) {
-    merged.preset = "custom";
+  // 曾被「预设定义变更」打成自定义（典型：旧 webp → 新 keep）时，尽量收回命名预设
+  for (const id of ["max", "compact", "balanced", "fast"] as const) {
+    const candidate = { ...merged, textureFormat: "keep" as const, preset: id };
+    if (matchesPreset(candidate, id)) {
+      return optionsFromPreset(id);
+    }
   }
 
   return merged;

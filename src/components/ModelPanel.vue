@@ -61,8 +61,11 @@ watch(
 function applyPreset(id: Exclude<CompressPresetId, "custom">) {
   applyingPreset = true;
   options.value = optionsFromPreset(id);
+  // 等深 watch 跑完再放行，避免整表替换被误标成自定义
   void nextTick(() => {
-    applyingPreset = false;
+    void nextTick(() => {
+      applyingPreset = false;
+    });
   });
 }
 
