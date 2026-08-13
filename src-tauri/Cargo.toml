@@ -1,6 +1,6 @@
 [package]
 name = "yaya"
-version = "0.1.0"
+version = "0.1.1"
 description = "压鸭 - 本地图片与 GLB 压缩工具"
 authors = ["vanch"]
 license = "Apache-2.0"
