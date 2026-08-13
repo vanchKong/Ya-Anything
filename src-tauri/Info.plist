@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 启动台 / 聚焦分类：工具 -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<!-- 默认（非中文）显示名；中文由 zh-Hans.lproj 覆盖 -->
+	<key>CFBundleDisplayName</key>
+	<string>YaYa</string>
+	<key>CFBundleName</key>
+	<string>YaYa</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+</dict>
+</plist>
