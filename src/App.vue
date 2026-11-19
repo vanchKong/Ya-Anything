@@ -9,7 +9,7 @@ import SplashScreen from "./components/SplashScreen.vue";
 import { useTheme, type ThemeMode } from "./composables/useTheme";
 import { useI18n, type LocalePreference } from "./i18n";
 import logo from "./assets/logo.png";
-import { loadCompressKind, saveCompressKind, type CompressKind } from "./lib/settings";
+import { loadCompressKind, saveCompressKind, loadOutputMode, type CompressKind, type OutputMode } from "./lib/settings";
 
 const REPO_URL = "https://github.com/vanchKong/Ya-Anything";
 
@@ -40,6 +40,13 @@ watch(compressKind, (v) => {
   saveCompressKind(v);
   dragStatus.value = false;
   dragPoint.value = null;
+});
+
+const outputModeLabel = computed(() => {
+  const mode: OutputMode = loadOutputMode();
+  if (mode === "overwrite") return t("output.overwrite");
+  if (mode === "newfile") return t("output.newfile");
+  return t("output.custom");
 });
 
 onMounted(async () => {
@@ -166,7 +173,7 @@ async function openRepo() {
     />
 
     <footer class="footer">
-      <span>{{ t("footerOutput") }}</span>
+      <span>{{ t("footerOutput") }} · {{ outputModeLabel }}</span>
       <div class="footer-controls">
         <label>
           {{ t("language") }}

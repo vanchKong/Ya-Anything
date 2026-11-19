@@ -47,6 +47,7 @@ pub struct CompressResult {
     pub ratio: f64,
     pub status: String,
     pub message: String,
+    pub output_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -63,6 +64,39 @@ fn file_name(path: &str) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or(path)
         .to_string()
+}
+
+/// 给可能冲突的路径加编号后缀：a.png → a.2.png → a.3.png …
+/// 只对 newfile/custom 模式生效；overwrite 直接写入原路径
+fn resolve_conflict_path(target: &PathBuf, is_overwrite: bool) -> PathBuf {
+    if is_overwrite {
+        return target.clone();
+    }
+    if !target.exists() {
+        return target.clone();
+    }
+    let parent = target
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    let stem = target
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output")
+        .to_string();
+    let ext = target
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| format!(".{s}"))
+        .unwrap_or_default();
+    for n in 2..=9999 {
+        let candidate = parent.join(format!("{stem}.{n}{ext}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    // 极端兜底，理论不会到
+    parent.join(format!("{stem}.dup{ext}"))
 }
 
 fn mime_of(path: &str) -> &'static str {
@@ -120,6 +154,7 @@ fn compress_image_inner(
     path: String,
     quality: u8,
     resize: Option<ResizeSpec>,
+    output_path: Option<String>,
 ) -> Result<CompressResult, String> {
     let path_buf = PathBuf::from(&path);
     if !is_supported_image(&path_buf) {
@@ -164,14 +199,29 @@ fn compress_image_inner(
             } else {
                 "已是最佳效果".into()
             },
+            output_path: None,
         });
     }
 
-    fs::write(&path_buf, &outcome.output).map_err(|e| format!("写入失败: {e}"))?;
-    overwritten
-        .lock()
-        .map_err(|_| "状态锁定失败".to_string())?
-        .insert(path.clone());
+    let is_overwrite = output_path.is_none();
+    let requested_target = output_path.as_deref().unwrap_or(&path);
+    let requested_buf = PathBuf::from(requested_target);
+    let target_buf = resolve_conflict_path(&requested_buf, is_overwrite);
+
+    if let Some(parent) = target_buf.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).ok();
+        }
+    }
+    fs::write(&target_buf, &outcome.output).map_err(|e| format!("写入失败: {e}"))?;
+
+    // 仅原地覆盖才记录到 overwritten（用于回退对比）
+    if is_overwrite {
+        overwritten
+            .lock()
+            .map_err(|_| "状态锁定失败".to_string())?
+            .insert(path.clone());
+    }
 
     let ratio = if origin_size == 0 {
         0.0
@@ -181,7 +231,7 @@ fn compress_image_inner(
 
     Ok(CompressResult {
         path: path.clone(),
-        name: file_name(&path),
+        name: file_name(target_buf.to_str().unwrap_or(requested_target)),
         origin_size,
         output_size: outcome.output_size,
         ratio,
@@ -191,6 +241,7 @@ fn compress_image_inner(
         } else {
             String::new()
         },
+        output_path: Some(target_buf.to_string_lossy().into_owned()),
     })
 }
 
@@ -229,11 +280,12 @@ async fn compress_image(
     state: State<'_, SessionState>,
     path: String,
     quality: u8,
+    output_path: Option<String>,
 ) -> Result<CompressResult, String> {
     let originals = state.originals.clone();
     let overwritten = state.overwritten.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        compress_image_inner(originals, overwritten, path, quality, None)
+        compress_image_inner(originals, overwritten, path, quality, None, output_path)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -247,6 +299,7 @@ async fn resize_image(
     mode: String,
     value: f64,
     lock_aspect: bool,
+    output_path: Option<String>,
 ) -> Result<CompressResult, String> {
     let originals = state.originals.clone();
     let overwritten = state.overwritten.clone();
@@ -256,7 +309,7 @@ async fn resize_image(
         lock_aspect,
     };
     tauri::async_runtime::spawn_blocking(move || {
-        compress_image_inner(originals, overwritten, path, quality, Some(spec))
+        compress_image_inner(originals, overwritten, path, quality, Some(spec), output_path)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -294,6 +347,7 @@ async fn restore_image(
             ratio: 0.0,
             status: "restored".into(),
             message: String::new(),
+            output_path: None,
         })
     })
     .await
@@ -420,6 +474,18 @@ fn clear_session(state: State<'_, SessionState>, paths: Option<Vec<String>>) -> 
     Ok(())
 }
 
+#[tauri::command]
+async fn remove_file(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if Path::new(&path).exists() {
+            fs::remove_file(&path).map_err(|e| format!("删除失败: {e}"))?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -436,7 +502,8 @@ pub fn run() {
             compress_texture_file,
             restore_image,
             get_preview,
-            clear_session
+            clear_session,
+            remove_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

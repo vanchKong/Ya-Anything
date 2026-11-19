@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { readFile, writeFile } from "@tauri-apps/plugin-fs";
+import { readFile, writeFile, mkdir, remove } from "@tauri-apps/plugin-fs";
 import { open } from "@tauri-apps/plugin-dialog";
 import ModelPreview from "./ModelPreview.vue";
 import ModelCompare from "./ModelCompare.vue";
@@ -17,7 +17,7 @@ import {
   type TextureFormat,
   type TextureMaxSize,
 } from "../lib/glbOptions";
-import { loadGlbOptions, saveGlbOptions } from "../lib/settings";
+import { loadGlbOptions, saveGlbOptions, loadOutputMode, loadOutputDir, saveOutputMode, saveOutputDir, resolveOutputPath, resolveConflictPath, type OutputMode } from "../lib/settings";
 import { createId, formatSize, type FileItem } from "../types";
 import { useI18n } from "../i18n";
 
@@ -35,6 +35,8 @@ const previewZone = ref<HTMLElement | null>(null);
 const compressZone = ref<HTMLElement | null>(null);
 const fileList = ref<FileItem[]>([]);
 const options = ref<GlbCompressOptions>(loadGlbOptions());
+const outputMode = ref<OutputMode>(loadOutputMode());
+const outputDir = ref<string>(loadOutputDir());
 let applyingPreset = false;
 
 watch(
@@ -42,6 +44,8 @@ watch(
   (v) => saveGlbOptions(v),
   { deep: true },
 );
+watch(outputMode, (v) => saveOutputMode(v));
+watch(outputDir, (v) => saveOutputDir(v));
 
 /** 改任意非 preset 字段 → 标为自定义 */
 watch(
@@ -403,13 +407,35 @@ async function compressOne(path: string) {
       return;
     }
 
-    await writeFile(path, output);
-    compressedMap.set(path, output);
+    const requestedPath = resolveOutputPath(path, outputMode.value, outputDir.value);
+    const isOverwrite = outputMode.value === "overwrite";
+    const outputPath = await resolveConflictPath(requestedPath, isOverwrite);
+
+    if (outputMode.value === "custom" || outputMode.value === "newfile") {
+      // 非原地：确保目录存在
+      const parentDir = outputPath.slice(
+        0,
+        Math.max(outputPath.lastIndexOf("/"), outputPath.lastIndexOf("\\")),
+      );
+      if (parentDir) {
+        await mkdir(parentDir, { recursive: true }).catch(() => {});
+      }
+      await writeFile(outputPath, output);
+      compressedMap.set(outputPath, output);
+      item.outputPath = outputPath;
+    } else {
+      await writeFile(path, output);
+      compressedMap.set(path, output);
+      item.outputPath = path;
+    }
+
     item.outputSize = output.byteLength;
     item.ratio =
       ((origin.byteLength - output.byteLength) / origin.byteLength) * 100;
     item.status = "compressed";
-    item.message = "";
+    item.message = outputMode.value === "custom" || outputMode.value === "newfile"
+      ? `已保存到 ${outputPath}`
+      : "";
   } catch (err) {
     item.status = "error";
     item.message = err instanceof Error ? err.message : String(err);
@@ -431,8 +457,20 @@ async function undoSelected() {
       continue;
     }
     try {
-      await writeFile(item.path, origin);
-      compressedMap.delete(item.path);
+      const isOverwrite = !item.outputPath || item.outputPath === item.path;
+      if (isOverwrite) {
+        // 原地覆盖：把原图写回原路径
+        await writeFile(item.path, origin);
+        compressedMap.delete(item.path);
+      } else {
+        // 新增文件：删除压缩后生成的文件
+        const outPath = item.outputPath;
+        if (outPath) {
+          await remove(outPath).catch(() => {});
+          compressedMap.delete(outPath);
+        }
+      }
+      item.outputPath = undefined;
       item.outputSize = origin.byteLength;
       item.ratio = 0;
       item.status = "restored";
@@ -535,6 +573,12 @@ function onMaxSizeChange(e: Event) {
   options.value.textureMaxSize = Number(
     (e.target as HTMLSelectElement).value,
   ) as TextureMaxSize;
+}
+
+async function pickOutputDir() {
+  const selected = await open({ directory: true, multiple: false });
+  if (!selected || Array.isArray(selected)) return;
+  outputDir.value = selected;
 }
 
 defineExpose({
@@ -715,6 +759,34 @@ defineExpose({
         </select>
       </label>
 
+      <span class="divider" />
+
+      <label class="opt" :title="t('output.overwriteDesc')">
+        <span>{{ t("output.title") }}</span>
+        <select v-model="outputMode">
+          <option value="overwrite">{{ t("output.overwrite") }}</option>
+          <option value="newfile">{{ t("output.newfile") }}</option>
+          <option value="custom">{{ t("output.custom") }}</option>
+        </select>
+      </label>
+
+      <button
+        v-if="outputMode === 'custom'"
+        type="button"
+        class="ghost small"
+        @click="pickOutputDir"
+      >
+        {{ t("output.pickDir") }}
+      </button>
+
+      <span
+        v-if="outputMode === 'custom'"
+        class="opt-hint"
+        :title="outputDir || t('output.noDirTip')"
+      >
+        {{ outputDir || t("output.noDirTip") }}
+      </span>
+
       <span v-if="progressText" class="progress">{{ progressText }}</span>
     </section>
 
@@ -876,6 +948,22 @@ defineExpose({
   font-size: 10px;
   color: var(--accent-text);
   background: var(--accent);
+}
+
+.divider {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 2px;
+}
+
+.opt-hint {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .progress {
@@ -1075,6 +1163,11 @@ button.ghost {
   background: var(--ghost-bg);
   border: 1px solid var(--line);
   color: var(--text);
+}
+
+button.small{
+  padding: 2px 4px;
+  border-radius: 5px;
 }
 
 button.danger {

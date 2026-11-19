@@ -18,6 +18,8 @@ export interface FileItem {
   selected: boolean;
   /** 上次处理方式，用于再处理 */
   lastOp?: "compress" | "resize";
+  /** 压缩后实际写入的文件路径（newfile/custom 才有，overwrite 时等于 path） */
+  outputPath?: string;
 }
 
 export interface CompressResult {
@@ -28,6 +30,8 @@ export interface CompressResult {
   ratio: number;
   status: string;
   message: string;
+  /** 压缩后实际写入的文件路径（便于前端识别回退行为） */
+  outputPath?: string;
 }
 
 export interface PreviewResult {

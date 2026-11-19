@@ -2,8 +2,8 @@ import type { LocaleCode, MessageTree } from "./types";
 
 const zh: MessageTree = {
   brand: "压鸭",
-  taglineImage: "本地图片压缩 / 改尺寸 · 原路径替换",
-  taglineModel: "本地 GLB 压缩 · 原路径替换",
+  taglineImage: "本地图片压缩 / 改尺寸",
+  taglineModel: "本地 GLB 压缩",
   openRepo: "开源仓库",
   kindImage: "图片",
   kindModel: "模型 GLB",
@@ -133,12 +133,23 @@ const zh: MessageTree = {
     before: "原图",
     hint: "移动鼠标对比前后效果",
   },
+  output: {
+    title: "输出",
+    overwrite: "原位置替换",
+    overwriteDesc: "直接覆盖原文件（支持回退）",
+    newfile: "原位置生成新文件",
+    newfileDesc: "同目录生成 .compressed 后缀文件",
+    custom: "指定输出目录",
+    customDesc: "压缩后放入选定目录",
+    pickDir: "选择目录",
+    noDirTip: "尚未选择目录",
+  },
 };
 
 const en: MessageTree = {
   brand: "YaYa",
-  taglineImage: "Local image compress / resize · overwrite in place",
-  taglineModel: "Local GLB compress · overwrite in place",
+  taglineImage: "Local image compress / resize",
+  taglineModel: "Local GLB compress",
   openRepo: "Open source repo",
   kindImage: "Images",
   kindModel: "Models GLB",
@@ -268,12 +279,23 @@ const en: MessageTree = {
     before: "Before",
     hint: "Move cursor to compare",
   },
+  output: {
+    title: "Output",
+    overwrite: "Overwrite original",
+    overwriteDesc: "Directly overwrite original file (undo supported)",
+    newfile: "New file beside original",
+    newfileDesc: "Add .compressed suffix in same folder",
+    custom: "Custom output folder",
+    customDesc: "Save compressed to selected folder",
+    pickDir: "Pick folder",
+    noDirTip: "No folder selected yet",
+  },
 };
 
 const ja: MessageTree = {
   brand: "ヤヤ",
-  taglineImage: "ローカル画像圧縮 / リサイズ · 元パス上書き",
-  taglineModel: "ローカル GLB 圧縮 · 元パス上書き",
+  taglineImage: "ローカル画像圧縮 / リサイズ",
+  taglineModel: "ローカル GLB 圧縮",
   openRepo: "オープンソース",
   kindImage: "画像",
   kindModel: "モデル GLB",
@@ -403,12 +425,23 @@ const ja: MessageTree = {
     before: "元画像",
     hint: "マウスを動かして比較",
   },
+  output: {
+    title: "出力",
+    overwrite: "元ファイル上書き",
+    overwriteDesc: "直接上書き（元に戻す対応）",
+    newfile: "同ディレクトリに新規作成",
+    newfileDesc: ".compressed サフィックスを付与",
+    custom: "出力先フォルダ指定",
+    customDesc: "選択したフォルダへ保存",
+    pickDir: "フォルダ選択",
+    noDirTip: "フォルダ未選択",
+  },
 };
 
 const ko: MessageTree = {
   brand: "야야",
-  taglineImage: "로컬 이미지 압축 / 크기 변경 · 원본 경로 덮어쓰기",
-  taglineModel: "로컬 GLB 압축 · 원본 경로 덮어쓰기",
+  taglineImage: "로컬 이미지 압축 / 크기 변경",
+  taglineModel: "로컬 GLB 압축",
   openRepo: "오픈소스 저장소",
   kindImage: "이미지",
   kindModel: "모델 GLB",
@@ -538,12 +571,23 @@ const ko: MessageTree = {
     before: "원본",
     hint: "마우스를 움직여 비교",
   },
+  output: {
+    title: "출력",
+    overwrite: "원본 덮어쓰기",
+    overwriteDesc: "직접 덮어씀 (되돌리기 지원)",
+    newfile: "동일 폴더에 새 파일",
+    newfileDesc: ".compressed 접미사 추가",
+    custom: "출력 폴더 지정",
+    customDesc: "선택한 폴더에 저장",
+    pickDir: "폴더 선택",
+    noDirTip: "폴더 미선택",
+  },
 };
 
 const ru: MessageTree = {
   brand: "Яя",
-  taglineImage: "Локальное сжатие / ресайз · перезапись пути",
-  taglineModel: "Локальное сжатие GLB · перезапись пути",
+  taglineImage: "Локальное сжатие / ресайз",
+  taglineModel: "Локальное сжатие GLB",
   openRepo: "Репозиторий",
   kindImage: "Изображения",
   kindModel: "Модели GLB",
@@ -672,6 +716,17 @@ const ru: MessageTree = {
     after: "После",
     before: "До",
     hint: "Двигайте курсор для сравнения",
+  },
+  output: {
+    title: "Вывод",
+    overwrite: "Перезаписать оригинал",
+    overwriteDesc: "Непосредственно перезаписать (поддерживается отмена)",
+    newfile: "Новый файл рядом",
+    newfileDesc: "С суффиксом .compressed в той же папке",
+    custom: "Папка вывода",
+    customDesc: "Сохранить в выбранную папку",
+    pickDir: "Выбрать папку",
+    noDirTip: "Папка не выбрана",
   },
 };
 

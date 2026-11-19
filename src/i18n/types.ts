@@ -141,6 +141,18 @@ export type MessageTree = {
     before: string;
     hint: string;
   };
+
+  output: {
+    title: string;
+    overwrite: string;
+    overwriteDesc: string;
+    newfile: string;
+    newfileDesc: string;
+    custom: string;
+    customDesc: string;
+    pickDir: string;
+    noDirTip: string;
+  };
 };
 
 export const LOCALE_CODES: LocaleCode[] = ["zh", "en", "ja", "ko", "ru"];

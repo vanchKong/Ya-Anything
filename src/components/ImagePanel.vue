@@ -6,8 +6,14 @@ import CompareModal from "./CompareModal.vue";
 import {
   loadImageResizeOptions,
   loadQuality,
+  loadOutputDir,
+  loadOutputMode,
   saveImageResizeOptions,
+  saveOutputDir,
+  saveOutputMode,
   saveQuality,
+  resolveOutputPath,
+  type OutputMode,
 } from "../lib/settings";
 import type { ImageOpMode, ResizeMode } from "../lib/imageOptions";
 import { resizeValueForMode } from "../lib/imageOptions";
@@ -36,9 +42,13 @@ const resizeZone = ref<HTMLElement | null>(null);
 const fileList = ref<FileItem[]>([]);
 const quality = ref(loadQuality());
 const resizeOpts = ref(loadImageResizeOptions());
+const outputMode = ref<OutputMode>(loadOutputMode());
+const outputDir = ref<string>(loadOutputDir());
 
 watch(quality, (v) => saveQuality(v));
 watch(resizeOpts, (v) => saveImageResizeOptions(v), { deep: true });
+watch(outputMode, (v) => saveOutputMode(v));
+watch(outputDir, (v) => saveOutputDir(v));
 
 const progressDone = ref(0);
 const progressTotal = ref(0);
@@ -314,6 +324,14 @@ async function processOne(path: string, op: ImageOpMode) {
   currentCompressName.value = item.name;
   try {
     let result: CompressResult;
+    const resolvedOutput = resolveOutputPath(
+      path,
+      outputMode.value,
+      outputDir.value,
+    );
+    const outputPathParam =
+      outputMode.value === "overwrite" ? null : resolvedOutput;
+
     if (op === "resize") {
       result = await invoke<CompressResult>("resize_image", {
         path,
@@ -321,11 +339,13 @@ async function processOne(path: string, op: ImageOpMode) {
         mode: resizeOpts.value.mode,
         value: resizeValueForMode(resizeOpts.value),
         lockAspect: resizeOpts.value.lockAspect,
+        outputPath: outputPathParam,
       });
     } else {
       result = await invoke<CompressResult>("compress_image", {
         path,
         quality: quality.value,
+        outputPath: outputPathParam,
       });
     }
     applyResult(item, result);
@@ -344,6 +364,7 @@ function applyResult(item: FileItem, result: CompressResult) {
   item.outputSize = result.outputSize;
   item.ratio = result.ratio;
   item.message = result.message;
+  item.outputPath = result.outputPath;
   if (result.status === "best") {
     item.status = "best";
   } else if (result.status === "restored") {
@@ -357,12 +378,22 @@ async function undoSelected() {
   for (const item of selectedItems.value) {
     if (item.status !== "compressed") continue;
     try {
-      const result = await invoke<CompressResult>("restore_image", {
-        path: item.path,
-      });
-      applyResult(item, result);
-      item.status = "restored";
-      item.message = t("common.restored");
+      const isOverwrite = !item.outputPath || item.outputPath === item.path;
+      if (isOverwrite) {
+        // 原地覆盖：把原图写回原路径
+        const result = await invoke<CompressResult>("restore_image", {
+          path: item.path,
+        });
+        applyResult(item, result);
+      } else {
+        // 新增文件：删除压缩后生成的文件
+        await invoke("remove_file", { path: item.outputPath });
+        item.outputPath = undefined;
+        item.outputSize = item.originSize;
+        item.ratio = 0;
+        item.status = "restored";
+        item.message = t("common.restored");
+      }
     } catch (err) {
       item.status = "error";
       item.message = err instanceof Error ? err.message : String(err);
@@ -432,6 +463,12 @@ function onResizeModeChange(e: Event) {
   resizeOpts.value.mode = (e.target as HTMLSelectElement).value as ResizeMode;
 }
 
+async function pickOutputDir() {
+  const selected = await open({ directory: true, multiple: false });
+  if (!selected || Array.isArray(selected)) return;
+  outputDir.value = selected;
+}
+
 defineExpose({
   handleDrop,
   progressText,
@@ -479,6 +516,34 @@ defineExpose({
         <input v-model="resizeOpts.lockAspect" type="checkbox" />
         <span>{{ t("image.lockAspect") }}</span>
       </label>
+
+      <span class="divider" />
+
+      <label class="opt" :title="t('output.overwriteDesc')">
+        <span>{{ t("output.title") }}</span>
+        <select v-model="outputMode">
+          <option value="overwrite">{{ t("output.overwrite") }}</option>
+          <option value="newfile">{{ t("output.newfile") }}</option>
+          <option value="custom">{{ t("output.custom") }}</option>
+        </select>
+      </label>
+
+      <button
+        v-if="outputMode === 'custom'"
+        type="button"
+        class="ghost small"
+        @click="pickOutputDir"
+      >
+        {{ t("output.pickDir") }}
+      </button>
+
+      <span
+        v-if="outputMode === 'custom'"
+        class="opt-hint"
+        :title="outputDir || t('output.noDirTip')"
+      >
+        {{ outputDir || t("output.noDirTip") }}
+      </span>
     </section>
 
     <section
@@ -637,6 +702,15 @@ defineExpose({
   height: 18px;
   background: var(--line);
   margin: 0 2px;
+}
+
+.opt-hint {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .num {
@@ -854,6 +928,11 @@ button.ghost {
   background: var(--ghost-bg);
   border: 1px solid var(--line);
   color: var(--text);
+}
+
+button.small{
+  padding: 2px 4px;
+  border-radius: 5px;
 }
 
 button.danger {
