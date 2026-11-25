@@ -701,6 +701,7 @@ defineExpose({
           <option :value="0.5">50%</option>
           <option :value="0.35">35%</option>
           <option :value="0.2">20%</option>
+          <option :value="0.1">10%</option>
         </select>
       </label>
 

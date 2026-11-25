@@ -1,3 +1,4 @@
+import { exists } from "@tauri-apps/plugin-fs";
 import {
   COMPRESS_PRESETS,
   DEFAULT_GLB_OPTIONS,
@@ -351,8 +352,6 @@ export async function resolveConflictPath(
   isOverwrite: boolean,
 ): Promise<string> {
   if (isOverwrite) return targetPath;
-  // 懒加载 exists，避免给非 Tauri 场景（测试）添负担
-  const { exists } = await import("@tauri-apps/plugin-fs");
   if (!(await exists(targetPath))) return targetPath;
 
   const sep = targetPath.includes("\\") ? "\\" : "/";

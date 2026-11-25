@@ -90,6 +90,17 @@ async function getIO(): Promise<WebIO> {
   return ioPromise;
 }
 
+/** 各 primitive 的顶点数之和（等价于查看器/上传时统计的顶点数） */
+function countVertices(document: Document): number {
+  let total = 0;
+  for (const mesh of document.getRoot().listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      total += prim.getAttribute("POSITION")?.getCount() ?? 0;
+    }
+  }
+  return total;
+}
+
 function isGlbBinary(input: Uint8Array): boolean {
   if (input.byteLength < 4) return false;
   return (
@@ -358,6 +369,8 @@ export async function compressGlbBytes(
   const document = await io.readBinary(input);
 
   const transforms = [];
+  // 简化前后统计顶点数，便于确认「缩减顶点」到底起没起作用
+  const srcVertexCount = options.simplify ? countVertices(document) : 0;
   if (options.dedup) transforms.push(dedup());
   if (options.weld) transforms.push(weld());
   if (options.resample) transforms.push(resample());
@@ -383,6 +396,14 @@ export async function compressGlbBytes(
     report({ stage: "cleanup", message: "清理网格与冗余…" });
     await new Promise<void>((r) => setTimeout(r, 0));
     await document.transform(...transforms);
+  }
+
+  if (options.simplify) {
+    const dstVertexCount = countVertices(document);
+    report({
+      stage: "cleanup",
+      message: `顶点 ${srcVertexCount.toLocaleString()} → ${dstVertexCount.toLocaleString()}`,
+    });
   }
 
   // 贴图转码是耗时与体积的主因：格式≠保持 或 需要缩放时才会跑
