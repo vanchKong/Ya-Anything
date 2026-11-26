@@ -6,8 +6,10 @@ import CompareModal from "./CompareModal.vue";
 import {
   loadImageResizeOptions,
   loadQuality,
+  loadGifOptions,
   loadOutputDir,
   loadOutputMode,
+  saveGifOptions,
   saveImageResizeOptions,
   saveOutputDir,
   saveOutputMode,
@@ -15,8 +17,16 @@ import {
   resolveOutputPath,
   type OutputMode,
 } from "../lib/settings";
-import type { ImageOpMode, ResizeMode } from "../lib/imageOptions";
-import { resizeValueForMode } from "../lib/imageOptions";
+import {
+  GIF_PRESETS,
+  gifPresetOf,
+  resizeValueForMode,
+  type GifCompressOptions,
+  type GifDither,
+  type GifPresetId,
+  type ImageOpMode,
+  type ResizeMode,
+} from "../lib/imageOptions";
 import { useI18n } from "../i18n";
 import {
   createId,
@@ -42,13 +52,42 @@ const resizeZone = ref<HTMLElement | null>(null);
 const fileList = ref<FileItem[]>([]);
 const quality = ref(loadQuality());
 const resizeOpts = ref(loadImageResizeOptions());
+const gifOpts = ref<GifCompressOptions>(loadGifOptions());
 const outputMode = ref<OutputMode>(loadOutputMode());
 const outputDir = ref<string>(loadOutputDir());
 
 watch(quality, (v) => saveQuality(v));
 watch(resizeOpts, (v) => saveImageResizeOptions(v), { deep: true });
+watch(gifOpts, (v) => saveGifOptions(v), { deep: true });
 watch(outputMode, (v) => saveOutputMode(v));
 watch(outputDir, (v) => saveOutputDir(v));
+
+const gifPreset = computed<GifPresetId>(() => gifPresetOf(gifOpts.value));
+
+function onGifPresetChange(e: Event) {
+  const id = (e.target as HTMLSelectElement).value as Exclude<
+    GifPresetId,
+    "custom"
+  >;
+  const preset = GIF_PRESETS[id];
+  if (preset) gifOpts.value = { ...preset };
+}
+
+function onGifFpsChange(e: Event) {
+  gifOpts.value.maxFps = Number((e.target as HTMLSelectElement).value);
+}
+
+function onGifColorsChange(e: Event) {
+  gifOpts.value.maxColors = Number((e.target as HTMLSelectElement).value);
+}
+
+function onGifDitherChange(e: Event) {
+  gifOpts.value.dither = (e.target as HTMLSelectElement).value as GifDither;
+}
+
+function onGifMaxWidthChange(e: Event) {
+  gifOpts.value.maxWidth = Number((e.target as HTMLSelectElement).value);
+}
 
 const progressDone = ref(0);
 const progressTotal = ref(0);
@@ -346,6 +385,7 @@ async function processOne(path: string, op: ImageOpMode) {
         path,
         quality: quality.value,
         outputPath: outputPathParam,
+        gifOptions: { ...gifOpts.value },
       });
     }
     applyResult(item, result);
@@ -546,6 +586,67 @@ defineExpose({
       </span>
     </section>
 
+    <section class="options gif-options">
+      <span class="row-tag">{{ t("image.gifTitle") }}</span>
+
+      <label class="opt" :title="t('image.gifPresetTip')">
+        <span>{{ t("image.gifPreset") }}</span>
+        <select :value="gifPreset" @change="onGifPresetChange">
+          <option value="default">{{ t("image.gifPresetDefault") }}</option>
+          <option value="light">{{ t("image.gifPresetLight") }}</option>
+          <option value="balanced">{{ t("image.gifPresetBalanced") }}</option>
+          <option value="aggressive">{{ t("image.gifPresetAggressive") }}</option>
+          <option value="custom" disabled>
+            {{ t("image.gifPresetCustom") }}
+          </option>
+        </select>
+      </label>
+
+      <span class="divider" />
+
+      <label class="opt" :title="t('image.gifFpsTip')">
+        <span>{{ t("image.gifFps") }}</span>
+        <select :value="gifOpts.maxFps" @change="onGifFpsChange">
+          <option :value="0">{{ t("image.gifFpsOriginal") }}</option>
+          <option v-for="v in [5, 8, 10, 12, 15, 20, 24, 30]" :key="v" :value="v">
+            {{ v }}
+          </option>
+        </select>
+      </label>
+
+      <label class="opt" :title="t('image.gifColorsTip')">
+        <span>{{ t("image.gifColors") }}</span>
+        <select :value="gifOpts.maxColors" @change="onGifColorsChange">
+          <option
+            v-for="v in [16, 32, 48, 64, 96, 128, 160, 192, 256]"
+            :key="v"
+            :value="v"
+          >
+            {{ v }}
+          </option>
+        </select>
+      </label>
+
+      <label class="opt" :title="t('image.gifDitherTip')">
+        <span>{{ t("image.gifDither") }}</span>
+        <select :value="gifOpts.dither" @change="onGifDitherChange">
+          <option value="bayer">{{ t("image.gifDitherBayer") }}</option>
+          <option value="floyd_steinberg">{{ t("image.gifDitherFs") }}</option>
+          <option value="none">{{ t("image.gifDitherNone") }}</option>
+        </select>
+      </label>
+
+      <label class="opt" :title="t('image.gifMaxWidthTip')">
+        <span>{{ t("image.gifMaxWidth") }}</span>
+        <select :value="gifOpts.maxWidth" @change="onGifMaxWidthChange">
+          <option :value="0">{{ t("image.gifNoScale") }}</option>
+          <option v-for="v in [480, 560, 640, 720, 960, 1280]" :key="v" :value="v">
+            {{ v }}
+          </option>
+        </select>
+      </label>
+    </section>
+
     <section
       ref="dualDropEl"
       v-show="isEmpty || dragActive"
@@ -684,6 +785,24 @@ defineExpose({
   font-size: 12px;
   font-weight: 700;
   align-items: center;
+}
+
+.gif-options {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  font-weight: 600;
+  opacity: 0.92;
+}
+
+.row-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.16);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
 
 .opt {

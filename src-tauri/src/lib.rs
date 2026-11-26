@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use compress::{
     compress_bytes, compress_texture_image, is_supported_image, is_supported_model,
-    resize_and_compress, ResizeSpec,
+    resize_and_compress, GifOptions, ResizeSpec,
 };
 use serde::Serialize;
 use tauri::State;
@@ -20,6 +20,8 @@ pub struct SessionState {
     originals: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     /// 已成功覆盖写入的路径（压缩结果读磁盘，避免再拷一份到内存）
     overwritten: Arc<Mutex<HashSet<String>>>,
+    /// 压缩后字节，供非 overwrite 模式 get_preview 使用（key = 原路径）
+    compressed: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
 
 impl SessionState {
@@ -27,6 +29,7 @@ impl SessionState {
         Self {
             originals: Arc::new(Mutex::new(HashMap::new())),
             overwritten: Arc::new(Mutex::new(HashSet::new())),
+            compressed: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -75,10 +78,7 @@ fn resolve_conflict_path(target: &PathBuf, is_overwrite: bool) -> PathBuf {
     if !target.exists() {
         return target.clone();
     }
-    let parent = target
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_default();
+    let parent = target.parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let stem = target
         .file_stem()
         .and_then(|s| s.to_str())
@@ -151,10 +151,12 @@ fn collect_from_path(root: &Path, out: &mut Vec<String>, model: bool) {
 fn compress_image_inner(
     originals: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     overwritten: Arc<Mutex<HashSet<String>>>,
+    compressed: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     path: String,
     quality: u8,
     resize: Option<ResizeSpec>,
     output_path: Option<String>,
+    gif_options: Option<GifOptions>,
 ) -> Result<CompressResult, String> {
     let path_buf = PathBuf::from(&path);
     if !is_supported_image(&path_buf) {
@@ -162,9 +164,7 @@ fn compress_image_inner(
     }
 
     let origin = {
-        let mut map = originals
-            .lock()
-            .map_err(|_| "状态锁定失败".to_string())?;
+        let mut map = originals.lock().map_err(|_| "状态锁定失败".to_string())?;
         if let Some(existing) = map.get(&path) {
             existing.clone()
         } else {
@@ -178,7 +178,8 @@ fn compress_image_inner(
     let outcome = if let Some(spec) = resize.as_ref() {
         resize_and_compress(&path_buf, &origin, quality, spec).map_err(|e| e.to_string())?
     } else {
-        compress_bytes(&path_buf, &origin, quality).map_err(|e| e.to_string())?
+        compress_bytes(&path_buf, &origin, quality, gif_options.as_ref())
+            .map_err(|e| e.to_string())?
     };
 
     if outcome.best_already {
@@ -221,6 +222,14 @@ fn compress_image_inner(
             .lock()
             .map_err(|_| "状态锁定失败".to_string())?
             .insert(path.clone());
+    }
+
+    // 所有压缩结果都存入 compressed map，供 get_preview 对比使用
+    {
+        let mut map = compressed
+            .lock()
+            .map_err(|_| "状态锁定失败".to_string())?;
+        map.insert(path.clone(), outcome.output.clone());
     }
 
     let ratio = if origin_size == 0 {
@@ -281,11 +290,22 @@ async fn compress_image(
     path: String,
     quality: u8,
     output_path: Option<String>,
+    gif_options: Option<GifOptions>,
 ) -> Result<CompressResult, String> {
     let originals = state.originals.clone();
     let overwritten = state.overwritten.clone();
+    let compressed = state.compressed.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        compress_image_inner(originals, overwritten, path, quality, None, output_path)
+        compress_image_inner(
+            originals,
+            overwritten,
+            compressed,
+            path,
+            quality,
+            None,
+            output_path,
+            gif_options,
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -303,13 +323,23 @@ async fn resize_image(
 ) -> Result<CompressResult, String> {
     let originals = state.originals.clone();
     let overwritten = state.overwritten.clone();
+    let compressed = state.compressed.clone();
     let spec = ResizeSpec {
         mode,
         value,
         lock_aspect,
     };
     tauri::async_runtime::spawn_blocking(move || {
-        compress_image_inner(originals, overwritten, path, quality, Some(spec), output_path)
+        compress_image_inner(
+            originals,
+            overwritten,
+            compressed,
+            path,
+            quality,
+            Some(spec),
+            output_path,
+            None,
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -322,11 +352,10 @@ async fn restore_image(
 ) -> Result<CompressResult, String> {
     let originals = state.originals.clone();
     let overwritten = state.overwritten.clone();
+    let compressed = state.compressed.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let origin = {
-            let map = originals
-                .lock()
-                .map_err(|_| "状态锁定失败".to_string())?;
+            let map = originals.lock().map_err(|_| "状态锁定失败".to_string())?;
             map.get(&path)
                 .cloned()
                 .ok_or_else(|| "无可回退的原图（仅支持本会话）".to_string())?
@@ -335,6 +364,10 @@ async fn restore_image(
         let origin_size = origin.len() as u64;
         fs::write(&path, &origin).map_err(|e| format!("回退写入失败: {e}"))?;
         overwritten
+            .lock()
+            .map_err(|_| "状态锁定失败".to_string())?
+            .remove(&path);
+        compressed
             .lock()
             .map_err(|_| "状态锁定失败".to_string())?
             .remove(&path);
@@ -360,27 +393,24 @@ async fn get_preview(
     path: String,
 ) -> Result<PreviewResult, String> {
     let originals = state.originals.clone();
-    let overwritten = state.overwritten.clone();
+    let compressed_map = state.compressed.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let origin = {
-            let map = originals
-                .lock()
-                .map_err(|_| "状态锁定失败".to_string())?;
+            let map = originals.lock().map_err(|_| "状态锁定失败".to_string())?;
             map.get(&path)
                 .cloned()
                 .ok_or_else(|| "找不到原图预览数据".to_string())?
         };
 
-        let is_overwritten = overwritten
-            .lock()
-            .map_err(|_| "状态锁定失败".to_string())?
-            .contains(&path);
-
-        let compressed_bytes = if is_overwritten {
-            fs::read(&path).map_err(|e| format!("读取压缩图失败: {e}"))?
-        } else {
-            origin.clone()
-        };
+        // 优先从 compressed map 取压缩后的 bytes（覆盖所有模式：overwrite / newfile / custom）
+        // 如果找不到（比如还没压缩过或已清理），fallback 到读磁盘
+        let compressed_bytes = {
+            let map = compressed_map
+                .lock()
+                .map_err(|_| "状态锁定失败".to_string())?;
+            map.get(&path).cloned()
+        }
+        .unwrap_or_else(|| fs::read(&path).unwrap_or_else(|_| origin.clone()));
 
         Ok(PreviewResult {
             mime: mime_of(&path).to_string(),
@@ -410,9 +440,8 @@ async fn compress_texture(
         let bytes = BASE64
             .decode(data_base64.as_bytes())
             .map_err(|e| format!("贴图解码失败: {e}"))?;
-        let (out, mime) =
-            compress_texture_image(&bytes, &target_format, quality, max_size)
-                .map_err(|e| e.to_string())?;
+        let (out, mime) = compress_texture_image(&bytes, &target_format, quality, max_size)
+            .map_err(|e| e.to_string())?;
         Ok(TextureCompressResult {
             data_base64: BASE64.encode(out),
             mime,
@@ -440,9 +469,8 @@ async fn compress_texture_file(
 ) -> Result<TextureFileResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let bytes = fs::read(&input_path).map_err(|e| format!("读取贴图失败: {e}"))?;
-        let (out, mime) =
-            compress_texture_image(&bytes, &target_format, quality, max_size)
-                .map_err(|e| e.to_string())?;
+        let (out, mime) = compress_texture_image(&bytes, &target_format, quality, max_size)
+            .map_err(|e| e.to_string())?;
         let output_size = out.len() as u64;
         fs::write(&output_path, &out).map_err(|e| format!("写入贴图失败: {e}"))?;
         Ok(TextureFileResult { mime, output_size })
@@ -461,15 +489,21 @@ fn clear_session(state: State<'_, SessionState>, paths: Option<Vec<String>>) -> 
         .overwritten
         .lock()
         .map_err(|_| "状态锁定失败".to_string())?;
+    let mut compressed = state
+        .compressed
+        .lock()
+        .map_err(|_| "状态锁定失败".to_string())?;
 
     if let Some(list) = paths {
         for p in list {
             originals.remove(&p);
             overwritten.remove(&p);
+            compressed.remove(&p);
         }
     } else {
         originals.clear();
         overwritten.clear();
+        compressed.clear();
     }
     Ok(())
 }

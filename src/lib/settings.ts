@@ -13,7 +13,10 @@ import {
   type TextureMaxSize,
 } from "./glbOptions";
 import {
+  DEFAULT_GIF_OPTIONS,
   DEFAULT_IMAGE_RESIZE,
+  type GifCompressOptions,
+  type GifDither,
   type ImageResizeOptions,
   type ResizeMode,
 } from "./imageOptions";
@@ -33,6 +36,7 @@ const KEYS = {
   locale: "ya-locale",
   glbOptions: "ya-glb-options",
   imageResize: "ya-image-resize",
+  gifOptions: "ya-gif-options",
   outputMode: "ya-output-mode",
   outputDir: "ya-output-dir",
 } as const;
@@ -122,6 +126,30 @@ export function loadImageResizeOptions(): ImageResizeOptions {
 
 export function saveImageResizeOptions(options: ImageResizeOptions) {
   localStorage.setItem(KEYS.imageResize, JSON.stringify(options));
+}
+
+export function loadGifOptions(): GifCompressOptions {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEYS.gifOptions) || "{}");
+    const dither: GifDither =
+      raw.dither === "bayer" ||
+      raw.dither === "floyd_steinberg" ||
+      raw.dither === "none"
+        ? raw.dither
+        : DEFAULT_GIF_OPTIONS.dither;
+    return {
+      maxFps: clampInt(raw.maxFps, 0, 60, DEFAULT_GIF_OPTIONS.maxFps),
+      maxColors: clampInt(raw.maxColors, 2, 256, DEFAULT_GIF_OPTIONS.maxColors),
+      dither,
+      maxWidth: clampInt(raw.maxWidth, 0, 8192, DEFAULT_GIF_OPTIONS.maxWidth),
+    };
+  } catch {
+    return { ...DEFAULT_GIF_OPTIONS };
+  }
+}
+
+export function saveGifOptions(options: GifCompressOptions) {
+  localStorage.setItem(KEYS.gifOptions, JSON.stringify(options));
 }
 
 function matchesPreset(

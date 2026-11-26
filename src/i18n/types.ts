@@ -67,6 +67,27 @@ export type MessageTree = {
     statusResizedDown: string;
     statusResizedUp: string;
     statusSaved: string;
+    gifTitle: string;
+    gifPreset: string;
+    gifPresetTip: string;
+    gifPresetDefault: string;
+    gifPresetLight: string;
+    gifPresetBalanced: string;
+    gifPresetAggressive: string;
+    gifPresetCustom: string;
+    gifFps: string;
+    gifFpsTip: string;
+    gifFpsOriginal: string;
+    gifColors: string;
+    gifColorsTip: string;
+    gifDither: string;
+    gifDitherTip: string;
+    gifDitherBayer: string;
+    gifDitherFs: string;
+    gifDitherNone: string;
+    gifMaxWidth: string;
+    gifMaxWidthTip: string;
+    gifNoScale: string;
   };
 
   model: {
